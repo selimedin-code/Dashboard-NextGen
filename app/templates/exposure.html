@@ -112,7 +112,7 @@
       {% for h in view.holdings[:20] %}
         <tr>
           <td class="num small">{{ h.rank }}</td>
-          <td class="mono sym">{{ h.ticker }}{% if h.flag == 'high' %} <span class="chip close">≥8%</span>{% elif h.flag == 'warn' %} <span class="chip trim">≥5%</span>{% endif %}</td>
+          <td class="mono sym"><a href="/ticker/{{ h.ticker }}">{{ h.ticker }}</a>{% if h.flag == 'high' %} <span class="chip close">≥8%</span>{% elif h.flag == 'warn' %} <span class="chip trim">≥5%</span>{% endif %}</td>
           <td class="small">{{ h.pillar or "" }}</td>
           <td class="num">{{ h.market_value|money }}</td>
           <td class="num">{{ h.fund_weight|pct_plain }}</td>

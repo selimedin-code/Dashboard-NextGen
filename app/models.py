@@ -382,3 +382,17 @@ class QuoteCache(Base):
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class PriceHistoryCache(Base):
+    """Daily close series per ticker, held as one JSON blob (list of [date, close]).
+    Backs the detail-page price chart and the 50/200-day moving averages. One row
+    per ticker; refreshed with the fundamentals fetch."""
+
+    __tablename__ = "price_history_cache"
+
+    ticker: Mapped[str] = mapped_column(Text, primary_key=True)
+    series: Mapped[list] = mapped_column(JSONB, nullable=False)   # [["2026-07-18", 202.81], ...]
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

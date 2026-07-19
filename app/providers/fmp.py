@@ -101,6 +101,11 @@ class FMPClient:
                 time.sleep(1.0 * (attempt + 1))
         raise RuntimeError(f"{path} failed after {self._max_retries} tries: {last_exc}")
 
+    def request(self, path: str, **params):
+        """Public throttled GET for endpoints beyond quotes (fundamentals, etc.).
+        Returns parsed JSON (list or dict); raises EntitlementError for 402/403."""
+        return self._get(path, **params)
+
     def get_quote(self, symbol: str) -> Quote:
         """Fetch one quote. Raises EntitlementError for unavailable symbols."""
         rows = self._get("quote", symbol=symbol)

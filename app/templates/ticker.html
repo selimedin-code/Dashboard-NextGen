@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% block title %}{{ d.ticker }} · NextGen{% endblock %}
+
+{% block content %}
+{% set f = d.fundamentals %}
+{% set pos = d.position %}
+
+<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+  <h1 class="page-title" style="margin:0">{{ d.ticker }}</h1>
+  <span class="muted">{{ (f.company_name if f else '') or (d.security.name if d.security else '') }}</span>
+  {% if d.pillar_name %}<span class="chip add">{{ d.pillar_name }}</span>{% endif %}
+  {% if d.crossref_name %}<span class="chip hold" title="secondary pillar">{{ d.crossref_name }}</span>{% endif %}
+</div>
+<p class="muted" style="margin:4px 0 14px">
+  {% if f %}{{ f.sector or '' }}{% if f.industry %} · {{ f.industry }}{% endif %} · {% endif %}
+  {% if d.security %}{{ d.security.exchange or '' }} · {{ d.security.isin or '' }}{% endif %}
+</p>
+
+{% if refreshed %}<div class="flash flash-ok">Fundamentals refreshed — {{ refreshed }}.</div>{% endif %}
+{% if saved %}<div class="flash flash-ok">Thesis note saved.</div>{% endif %}
+
+<div class="card" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+  <div>
+    {% if pos and pos.priced %}
+      <span style="font-size:22px;font-weight:800" class="num">{{ pos.price|money }}</span>
+      <span class="num {{ 'pos' if pos.day_change_pct and pos.day_change_pct>0 else 'neg' if pos.day_change_pct and pos.day_change_pct<0 else '' }}">
+        {{ pos.day_change_pct|pct if pos.day_change_pct is not none else '' }}</span>
+    {% else %}<span class="muted">no live price — refresh on Positions</span>{% endif %}
+  </div>
+  <div class="muted" style="margin-left:auto">
+    {% if f %}fundamentals as of {{ f.as_of }}
+      {% if d.fundamentals_age_days is not none and d.fundamentals_age_days > 3 %}<span class="age-warn">({{ d.fundamentals_age_days }}d old)</span>{% endif %}
+    {% else %}<span class="age-stale">no fundamentals cached yet</span>{% endif %}
+  </div>
+  <form method="post" action="/ticker/{{ d.ticker }}/refresh" style="margin:0">
+    <button class="btn btn-primary">{{ 'Refresh' if f else 'Fetch fundamentals' }}</button>
+  </form>
+</div>
+
+<div class="split">
+  {# Position context #}
+  <div class="card">
+    <h2>Position</h2>
+    {% if pos %}
+    <table><tbody>
+      <tr><td>Units</td><td class="num sym">{{ pos.units|qty }}</td></tr>
+      <tr><td>Blended cost <span class="muted">(incl. top-ups)</span></td><td class="num">{{ pos.avg_cost|money }}</td></tr>
+      <tr><td>Market value</td><td class="num">{{ pos.market_value|money if pos.market_value is not none else '—' }}</td></tr>
+      <tr><td>Weight</td><td class="num">{{ pos.weight|pct_plain if pos.weight is not none else '—' }}</td></tr>
+      <tr><td>Unrealized P&amp;L</td><td class="num {{ 'pos' if pos.unrl_pl and pos.unrl_pl>0 else 'neg' if pos.unrl_pl and pos.unrl_pl<0 else '' }}">{{ pos.unrl_pl|money if pos.unrl_pl is not none else '—' }} {% if pos.unrl_pct is not none %}({{ pos.unrl_pct|pct }}){% endif %}</td></tr>
+      {% if d.security and d.security.first_seen %}<tr><td>First seen</td><td class="num">{{ d.security.first_seen }}</td></tr>{% endif %}
+    </tbody></table>
+    <p class="hint">Blended cost includes pro-rata top-ups, so “Unrl %” is economic return, not a verdict on the entry.</p>
+    {% else %}<p class="muted">Not currently held.</p>{% endif %}
+  </div>
+
+  {# Valuation & quality #}
+  <div class="card">
+    <h2>Valuation &amp; quality</h2>
+    {% if f %}
+    <table><tbody>
+      <tr><td>Market cap</td><td class="num">{{ f.market_cap|money if f.market_cap is not none else '—' }}</td></tr>
+      <tr><td>P/E (ttm)</td><td class="num">{{ f.pe_trailing|dec1 if f.pe_trailing is not none else '—' }}</td></tr>
+      <tr><td>PEG</td><td class="num">{{ f.peg|dec1 if f.peg is not none else '—' }}</td></tr>
+      <tr><td>P/S</td><td class="num">{{ f.price_to_sales|dec1 if f.price_to_sales is not none else '—' }}</td></tr>
+      <tr><td>EV/EBITDA</td><td class="num">{{ f.ev_to_ebitda|dec1 if f.ev_to_ebitda is not none else '—' }}</td></tr>
+      <tr><td>Net margin</td><td class="num">{{ f.profit_margin|pct_plain if f.profit_margin is not none else '—' }}</td></tr>
+      <tr><td>Operating margin</td><td class="num">{{ f.operating_margin|pct_plain if f.operating_margin is not none else '—' }}</td></tr>
+      <tr><td>ROE</td><td class="num">{{ f.roe|pct_plain if f.roe is not none else '—' }}</td></tr>
+      <tr><td>Beta</td><td class="num">{{ f.beta|dec1 if f.beta is not none else '—' }}</td></tr>
+    </tbody></table>
+    {% else %}<p class="muted">Fetch fundamentals to populate.</p>{% endif %}
+  </div>
+</div>
+
+{# Price chart with change markers #}
+{% if d.chart %}
+<div class="card">
+  <h2>Price &amp; this position's moves</h2>
+  <svg viewBox="0 0 {{ d.chart.w }} {{ d.chart.h }}" width="100%" preserveAspectRatio="none" style="max-height:220px">
+    <polyline fill="none" stroke="#3167D6" stroke-width="1.5" points="{{ d.chart.points }}"/>
+    {% for m in d.chart.markers %}
+      {% set col = {'OPEN':'#1F8A5B','ADD':'#3167D6','TRIM':'#B8912F','CLOSE':'#D6493A'}[m.kind] %}
+      <circle cx="{{ m.x }}" cy="{{ m.y }}" r="4" fill="{{ col }}" stroke="#fff" stroke-width="1.5"><title>{{ m.kind }} {{ m.label }}</title></circle>
+    {% endfor %}
+    <circle cx="{{ d.chart.last_x }}" cy="{{ d.chart.last_y }}" r="3" fill="#141414"/>
+  </svg>
+  <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--dim)">
+    <span>{{ d.chart.first_date }} · low {{ d.chart.lo|money }}</span>
+    <span>high {{ d.chart.hi|money }} · {{ d.chart.last_date }}</span>
+  </div>
+  <div class="change-counts" style="margin-top:8px">
+    {% if d.derived.range52_pos is not none %}<span class="ct">52w range: {{ d.derived.range52_pos|pct_plain }}</span>{% endif %}
+    {% if d.derived.dist_dma50 is not none %}<span class="ct {{ 'ct-open' if d.derived.dist_dma50>0 else 'ct-close' }}">vs 50d: {{ d.derived.dist_dma50|pct }}</span>{% endif %}
+    {% if d.derived.dist_dma200 is not none %}<span class="ct {{ 'ct-open' if d.derived.dist_dma200>0 else 'ct-close' }}">vs 200d: {{ d.derived.dist_dma200|pct }}</span>{% endif %}
+  </div>
+</div>
+{% endif %}
+
+<div class="split">
+  {# Analyst view #}
+  <div class="card">
+    <h2>Analyst view</h2>
+    {% if f and f.target_consensus is not none %}
+    <table><tbody>
+      <tr><td>Consensus target</td><td class="num sym">{{ f.target_consensus|money }}</td></tr>
+      <tr><td>Range (low–high)</td><td class="num">{{ f.target_low|money }} – {{ f.target_high|money }}</td></tr>
+      {% if d.derived.implied_upside is not none %}<tr><td>Implied upside</td><td class="num {{ 'pos' if d.derived.implied_upside>0 else 'neg' }}">{{ d.derived.implied_upside|pct }}</td></tr>{% endif %}
+      <tr><td>Consensus rating</td><td class="num sym">{{ f.grades_consensus or '—' }}</td></tr>
+    </tbody></table>
+    {% if d.derived.total_grades %}
+      <div class="change-counts" style="margin-top:8px">
+        {% if f.grades_strong_buy %}<span class="ct ct-open">{{ f.grades_strong_buy }} strong buy</span>{% endif %}
+        {% if f.grades_buy %}<span class="ct ct-open">{{ f.grades_buy }} buy</span>{% endif %}
+        {% if f.grades_hold %}<span class="ct">{{ f.grades_hold }} hold</span>{% endif %}
+        {% if f.grades_sell %}<span class="ct ct-close">{{ f.grades_sell }} sell</span>{% endif %}
+        {% if f.grades_strong_sell %}<span class="ct ct-close">{{ f.grades_strong_sell }} strong sell</span>{% endif %}
+      </div>
+    {% endif %}
+    {% else %}<p class="muted">No analyst data cached.</p>{% endif %}
+  </div>
+
+  {# Thesis note #}
+  <div class="card">
+    <h2>Thesis note</h2>
+    <form method="post" action="/ticker/{{ d.ticker }}/note" class="form">
+      <textarea name="thesis_note" rows="5" placeholder="Why this position — the reasoning at entry…"
+        style="width:100%;border:1px solid var(--line);border-radius:8px;padding:9px 11px;font:inherit;font-size:13px;resize:vertical">{{ d.security.thesis_note if d.security and d.security.thesis_note else '' }}</textarea>
+      <div class="actions" style="margin-top:8px"><button class="btn btn-primary">Save note</button></div>
+    </form>
+  </div>
+</div>
+
+{# Forward estimates #}
+{% if d.estimates %}
+<div class="card">
+  <h2>Forward estimates (annual)</h2>
+  <table>
+    <thead><tr><th>FY end</th><th class="num">Revenue avg</th><th class="num">EPS avg</th><th class="num">EPS low–high</th><th class="num"># analysts</th></tr></thead>
+    <tbody>
+    {% for e in d.estimates %}
+      <tr><td>{{ e.period_end }}</td>
+        <td class="num">{{ e.revenue_avg|money if e.revenue_avg is not none else '—' }}</td>
+        <td class="num sym">{{ e.eps_avg|dec1 if e.eps_avg is not none else '—' }}</td>
+        <td class="num muted">{{ e.eps_low|dec1 if e.eps_low is not none else '—' }}–{{ e.eps_high|dec1 if e.eps_high is not none else '—' }}</td>
+        <td class="num">{{ e.num_analysts_eps or '—' }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="split">
+  {# Earnings surprises #}
+  {% if d.earnings %}
+  <div class="card">
+    <h2>Earnings surprises</h2>
+    <table>
+      <thead><tr><th>Fiscal</th><th class="num">EPS actual</th><th class="num">Est.</th><th class="num">Surprise</th></tr></thead>
+      <tbody>
+      {% for e in d.earnings %}
+        <tr><td>{{ e.fiscal_ending }}</td>
+          <td class="num">{{ e.eps_actual|dec1 if e.eps_actual is not none else '—' }}</td>
+          <td class="num muted">{{ e.eps_estimate|dec1 if e.eps_estimate is not none else '—' }}</td>
+          <td class="num {{ 'pos' if e.surprise_pct and e.surprise_pct>0 else 'neg' if e.surprise_pct and e.surprise_pct<0 else '' }}">
+            {{ (e.surprise_pct/100)|pct if e.surprise_pct is not none else '—' }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {# Change history #}
+  {% if d.changes %}
+  <div class="card">
+    <h2>This position's changes</h2>
+    <table>
+      <thead><tr><th>Date</th><th>Move</th><th>Type</th><th class="num">Δ units</th></tr></thead>
+      <tbody>
+      {% for row in d.changes %}
+        {% set c = row.change %}
+        <tr><td>{{ row.as_of }}</td>
+          <td><span class="chip {{ c.change_type|lower }}">{{ c.change_type }}</span></td>
+          <td class="small">{{ (c.classification or '')|lower }}</td>
+          <td class="num">{{ c.units_delta|qty }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+{# News #}
+{% if d.news %}
+<div class="card">
+  <h2>News <span class="muted" style="font-size:12px;font-weight:400">— awareness only; never trust a number from a headline</span></h2>
+  {% for n in d.news %}
+    <div class="chk" style="padding:8px 0;border-bottom:1px solid var(--div)">
+      <a href="{{ n.url }}" target="_blank" rel="noopener" style="font-weight:600">{{ n.title }}</a>
+      <div class="small">{{ n.source or '' }}{% if n.published_at %} · {{ n.published_at.strftime('%Y-%m-%d') }}{% endif %}</div>
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if not f %}
+<p class="muted" style="text-align:center;margin-top:16px">Click <strong>Fetch fundamentals</strong> above to pull valuation, analyst targets, estimates, earnings and news for {{ d.ticker }}.</p>
+{% endif %}
+{% endblock %}

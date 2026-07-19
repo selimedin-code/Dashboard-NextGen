@@ -48,7 +48,7 @@
       <tbody>
       {% for c in rows %}
         <tr>
-          <td class="mono sym">{{ c.ticker }}</td>
+          <td class="mono sym">{% if c.ticker == 'USD Cash' %}{{ c.ticker }}{% else %}<a href="/ticker/{{ c.ticker }}">{{ c.ticker }}</a>{% endif %}</td>
           <td><span class="chip {{ c.change_type|lower }}">{{ c.change_type }}</span></td>
           <td>
             {% if c.classification == 'DISCRETIONARY' %}<span class="cls cls-disc">discretionary</span>

@@ -101,7 +101,7 @@
             data-unrl="{{ r.unrl_pl if r.unrl_pl is not none else '' }}"
             data-unrlpct="{{ r.unrl_pct if r.unrl_pct is not none else '' }}"
             {% if r.is_cash %}class="row-cash"{% endif %}>
-          <td class="mono sym">{{ r.ticker }}</td>
+          <td class="mono sym">{% if r.is_cash %}{{ r.ticker }}{% else %}<a href="/ticker/{{ r.ticker }}">{{ r.ticker }}</a>{% endif %}</td>
           <td>{% if r.pillar %}{{ r.pillar }}{% else %}<span class="muted">—</span>{% endif %}</td>
           <td class="num">{{ r.units|qty }}</td>
           <td class="num">{{ r.avg_cost|money if not r.is_cash else '—' }}</td>
