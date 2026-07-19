@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}Positions · NextGen{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Positions</h1>
+
+{% if view is none %}
+  <div class="card">
+    <div class="empty-badge">No data yet</div>
+    <p class="muted">Upload a snapshot to populate the position table.</p>
+    <a class="btn btn-primary" href="/upload" style="margin-top:10px">Upload a snapshot &rarr;</a>
+  </div>
+{% else %}
+  {% set h = view.header %}
+
+  {# Header strip #}
+  <div class="prov">
+    <div>
+      <b>Total value</b>
+      <span class="v num">{{ h.total_value|money }}</span>
+    </div>
+    <div class="{{ 'age-fresh' if h.day_pl and h.day_pl > 0 else ('age-stale' if h.day_pl and h.day_pl < 0 else '') }}">
+      <b>Day P&amp;L</b>
+      <span class="v num">{{ h.day_pl|money }}{% if h.day_pct is not none %} <span style="font-size:13px">({{ h.day_pct|pct }})</span>{% endif %}</span>
+    </div>
+    <div class="{{ 'age-fresh' if h.unrl_pl and h.unrl_pl > 0 else ('age-stale' if h.unrl_pl and h.unrl_pl < 0 else '') }}">
+      <b>Unrealized P&amp;L</b>
+      <span class="v num">{{ h.unrl_pl|money }}{% if h.unrl_pct is not none %} <span style="font-size:13px">({{ h.unrl_pct|pct }})</span>{% endif %}</span>
+    </div>
+    <div>
+      <b>Cash</b>
+      <span class="v num">{{ h.cash_value|money }}{% if h.cash_pct is not none %} <span style="font-size:13px">({{ h.cash_pct|pct if h.cash_pct is not none else '' }})</span>{% endif %}</span>
+    </div>
+    <div>
+      <b>Positions</b>
+      <span class="v num">{{ h.position_count }}</span>
+    </div>
+  </div>
+
+  {# Freshness + refresh #}
+  <div class="card" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <div class="muted">
+      Snapshot <strong>{{ view.as_of }}</strong>
+      ({{ 'today' if view.staleness_days == 0 else view.staleness_days ~ 'd old' }})
+      &middot; prices
+      {% if view.cache_age_seconds is none %}<strong class="age-stale">never fetched</strong>
+      {% elif view.cache_age_seconds < 900 %}<strong class="age-fresh">{{ (view.cache_age_seconds/60)|round|int }} min ago</strong>
+      {% elif view.cache_age_seconds < 86400 %}<strong class="age-warn">{{ (view.cache_age_seconds/3600)|round(1) }} h ago</strong>
+      {% else %}<strong class="age-stale">{{ (view.cache_age_seconds/86400)|round|int }} d ago</strong>{% endif %}
+    </div>
+    <form method="post" action="/positions/refresh" style="margin:0 0 0 auto">
+      <button type="submit" class="btn btn-primary">Refresh prices</button>
+    </form>
+  </div>
+
+  {% if refreshed %}<div class="flash flash-ok">Prices refreshed — {{ refreshed }}.</div>{% endif %}
+
+  {% if h.unpriced_count %}
+    <div class="flash flash-warn">
+      <b>{{ h.unpriced_count }} position(s) not priced</b>
+      Shown below without a live value and excluded from totals:
+      {{ view.unpriced|join(', ') }}. Use the US ADR or a manual override if needed.
+    </div>
+  {% endif %}
+
+  {# Controls #}
+  <div class="card">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      <input type="search" id="q" placeholder="filter ticker / name…"
+             style="border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-size:13px;width:200px" />
+      <select id="pillar">
+        <option value="">All pillars</option>
+        {% for p in view.pillars %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+        <option value="—">Unassigned</option>
+      </select>
+      <span class="muted" id="shown" style="margin-left:auto"></span>
+    </div>
+    <table id="tbl">
+      <thead><tr>
+        <th data-k="ticker" data-t="s">Ticker</th>
+        <th data-k="pillar" data-t="s">Pillar</th>
+        <th class="num" data-k="units" data-t="n">Units</th>
+        <th class="num" data-k="cost" data-t="n">Avg cost</th>
+        <th class="num" data-k="price" data-t="n">Price</th>
+        <th class="num" data-k="mv" data-t="n">Mkt value</th>
+        <th class="num" data-k="weight" data-t="n">Weight</th>
+        <th class="num" data-k="day" data-t="n">Day %</th>
+        <th class="num" data-k="daypl" data-t="n">Day P&amp;L</th>
+        <th class="num" data-k="unrl" data-t="n">Unrl P&amp;L</th>
+        <th class="num" data-k="unrlpct" data-t="n">Unrl %</th>
+      </tr></thead>
+      <tbody id="rows">
+      {% for r in view.rows %}
+        <tr data-ticker="{{ r.ticker }}" data-name="{{ (r.name or '')|e }}" data-pillar="{{ r.pillar or '—' }}"
+            data-units="{{ r.units }}" data-cost="{{ r.avg_cost }}"
+            data-price="{{ r.price if r.price is not none else '' }}"
+            data-mv="{{ r.market_value if r.market_value is not none else '' }}"
+            data-weight="{{ r.weight if r.weight is not none else '' }}"
+            data-day="{{ r.day_change_pct if r.day_change_pct is not none else '' }}"
+            data-daypl="{{ r.day_pl if r.day_pl is not none else '' }}"
+            data-unrl="{{ r.unrl_pl if r.unrl_pl is not none else '' }}"
+            data-unrlpct="{{ r.unrl_pct if r.unrl_pct is not none else '' }}"
+            {% if r.is_cash %}class="row-cash"{% endif %}>
+          <td class="mono sym">{{ r.ticker }}</td>
+          <td>{% if r.pillar %}{{ r.pillar }}{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td class="num">{{ r.units|qty }}</td>
+          <td class="num">{{ r.avg_cost|money if not r.is_cash else '—' }}</td>
+          <td class="num">
+            {% if not r.priced %}<span class="chip trim" title="{{ r.error }}">no price</span>
+            {% elif r.is_cash %}—
+            {% else %}{{ r.price|money }}{% endif %}
+          </td>
+          <td class="num">{{ r.market_value|money if r.market_value is not none else '—' }}</td>
+          <td class="num">{{ r.weight|pct_plain if r.weight is not none else '—' }}</td>
+          <td class="num {{ 'pos' if r.day_change_pct and r.day_change_pct > 0 else 'neg' if r.day_change_pct and r.day_change_pct < 0 else '' }}">
+            {{ r.day_change_pct|pct if r.day_change_pct is not none else '—' }}</td>
+          <td class="num {{ 'pos' if r.day_pl and r.day_pl > 0 else 'neg' if r.day_pl and r.day_pl < 0 else '' }}">
+            {{ r.day_pl|money if r.day_pl is not none else '—' }}</td>
+          <td class="num {{ 'pos' if r.unrl_pl and r.unrl_pl > 0 else 'neg' if r.unrl_pl and r.unrl_pl < 0 else '' }}">
+            {{ r.unrl_pl|money if r.unrl_pl is not none else '—' }}</td>
+          <td class="num {{ 'pos' if r.unrl_pct and r.unrl_pct > 0 else 'neg' if r.unrl_pct and r.unrl_pct < 0 else '' }}">
+            {{ r.unrl_pct|pct if r.unrl_pct is not none else '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="hint">Avg cost is <strong>blended</strong> (includes pro-rata top-ups), so “Unrl %” is economic return, not a verdict on the entry.</p>
+  </div>
+
+  <script>
+  (function(){
+    const tbody = document.getElementById('rows');
+    const all = Array.from(tbody.querySelectorAll('tr'));
+    const q = document.getElementById('q'), pillar = document.getElementById('pillar');
+    const shown = document.getElementById('shown');
+    let sortK = 'mv', sortDir = -1;
+
+    function draw(){
+      const term = q.value.trim().toUpperCase(), pf = pillar.value;
+      let vis = all.filter(tr => {
+        const t = tr.dataset.ticker.toUpperCase(), n = (tr.dataset.name||'').toUpperCase();
+        if (term && !t.includes(term) && !n.includes(term)) return false;
+        if (pf && tr.dataset.pillar !== pf) return false;
+        return true;
+      });
+      vis.sort((a,b) => {
+        const A = a.dataset[sortK], B = b.dataset[sortK];
+        const na = A === '' ? null : parseFloat(A), nb = B === '' ? null : parseFloat(B);
+        const isNum = document.querySelector(`th[data-k="${sortK}"]`).dataset.t === 'n';
+        if (isNum){
+          if (na === null) return 1; if (nb === null) return -1;   // blanks last
+          return sortDir * (na - nb);
+        }
+        return sortDir * String(A).localeCompare(String(B));
+      });
+      tbody.innerHTML = '';
+      vis.forEach(tr => tbody.appendChild(tr));
+      shown.textContent = vis.length + ' of ' + all.length;
+    }
+    q.addEventListener('input', draw);
+    pillar.addEventListener('change', draw);
+    document.querySelectorAll('th[data-k]').forEach(th => {
+      th.style.cursor = 'pointer';
+      th.addEventListener('click', () => {
+        const k = th.dataset.k;
+        if (sortK === k) sortDir = -sortDir; else { sortK = k; sortDir = th.dataset.t === 'n' ? -1 : 1; }
+        draw();
+      });
+    });
+    draw();
+  })();
+  </script>
+{% endif %}
+{% endblock %}

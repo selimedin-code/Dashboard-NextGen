@@ -333,3 +333,32 @@ class UploadStaging(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+# ---------------------------------------------------------------------------
+# Price cache  (Phase 3 — the position table reads this, never the live API)
+# ---------------------------------------------------------------------------
+
+
+class QuoteCache(Base):
+    """Latest live quote per ticker. Written by the refresh action / daily cron;
+    the position page reads only from here so a slow API never blocks a render.
+
+    `ok=False` with an `error` is a first-class state — a ticker we could not
+    price (e.g. a non-US listing not on the plan) is shown badged, never as a
+    silent zero."""
+
+    __tablename__ = "quote_cache"
+
+    ticker: Mapped[str] = mapped_column(Text, primary_key=True)
+    fmp_symbol: Mapped[str | None] = mapped_column(Text)
+    price: Mapped[float | None] = mapped_column(Numeric(20, 6))
+    prev_close: Mapped[float | None] = mapped_column(Numeric(20, 6))
+    day_change_pct: Mapped[float | None] = mapped_column(Numeric(12, 6))
+    currency: Mapped[str | None] = mapped_column(Text)
+    name: Mapped[str | None] = mapped_column(Text)
+    ok: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    error: Mapped[str | None] = mapped_column(Text)
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

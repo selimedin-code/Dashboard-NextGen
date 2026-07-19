@@ -47,9 +47,17 @@ def _fmt_pct(value) -> str:
     return f"{value * 100:+.1f}%"
 
 
+def _fmt_pct_plain(value) -> str:
+    """value is a fraction; 0.066 -> '6.6%' (no sign — for weights)."""
+    if value is None:
+        return "—"
+    return f"{value * 100:.1f}%"
+
+
 templates.env.filters["money"] = _fmt_money
 templates.env.filters["qty"] = _fmt_qty
 templates.env.filters["pct"] = _fmt_pct
+templates.env.filters["pct_plain"] = _fmt_pct_plain
 
 app = FastAPI(title="NextGen Fund Dashboard", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
@@ -58,13 +66,16 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 from app import routes_upload  # noqa: E402
 from app import routes_changes  # noqa: E402
 from app import routes_pillars  # noqa: E402
+from app import routes_positions  # noqa: E402
 
 routes_upload.init_templates(templates)
 routes_changes.init_templates(templates)
 routes_pillars.init_templates(templates)
+routes_positions.init_templates(templates)
 app.include_router(routes_upload.router)
 app.include_router(routes_changes.router)
 app.include_router(routes_pillars.router)
+app.include_router(routes_positions.router)
 
 
 @app.get("/healthz", include_in_schema=False)
