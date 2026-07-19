@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Pillars · NextGen{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Pillars</h1>
+
+{% if request.query_params.get('saved') %}
+  <div class="flash flash-ok">Pillar assignments saved.</div>
+{% endif %}
+{% if upload_result %}
+  <div class="flash flash-ok">{{ upload_result }}</div>
+{% endif %}
+{% if upload_error %}
+  <div class="flash flash-err">{{ upload_error }}</div>
+{% endif %}
+
+{% if held_count == 0 %}
+  <div class="card">
+    <div class="empty-badge">No holdings</div>
+    <p class="muted">Upload a snapshot first — the held tickers appear here for pillar assignment.
+    You can still pre-load a mapping file below; those pillars apply when the tickers first appear.</p>
+  </div>
+{% endif %}
+
+<div class="card">
+  <h2>Bulk upload</h2>
+  <p class="muted">A <strong>.xlsx</strong> or <strong>.csv</strong> with a
+  <strong>Ticker</strong> column and a <strong>Pillar</strong> column. Tickers may
+  include the exchange suffix (<span class="mono">NVDA US</span>) — it is stripped
+  to match. Unknown tickers are pre-registered so their pillar is ready on first appearance.</p>
+  <form method="post" action="/pillars/upload" enctype="multipart/form-data" class="form" style="margin-top:10px">
+    <input type="file" name="file" accept=".xlsx,.xlsm,.csv" required />
+    <div class="actions" style="margin-top:10px">
+      <button type="submit" class="btn btn-primary">Upload mapping</button>
+    </div>
+  </form>
+</div>
+
+{% if pillar_counts %}
+<div class="card">
+  <h2>Coverage</h2>
+  <div class="change-counts" style="margin-top:8px">
+    {% for name, n in pillar_counts %}
+      <span class="ct {{ 'ct-trim' if name.startswith('—') else 'ct-add' }}">{{ name }} · {{ n }}</span>
+    {% endfor %}
+  </div>
+  {% if unassigned %}<p class="hint">{{ unassigned }} held ticker(s) still unassigned.</p>{% endif %}
+</div>
+{% endif %}
+
+{% if rows %}
+<form method="post" action="/pillars/save" class="form">
+  <div class="card">
+    <h2>Held tickers ({{ held_count }})</h2>
+    <datalist id="pillars">
+      {% for p in existing_pillars %}<option value="{{ p }}">{% endfor %}
+    </datalist>
+    <table>
+      <thead><tr><th>Ticker</th><th>Name</th><th>Pillar</th></tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td class="mono sym">{{ r.ticker }}</td>
+          <td>{{ r.name or "" }}</td>
+          <td><input type="text" name="pillar__{{ r.ticker }}" list="pillars"
+                     value="{{ r.pillar or '' }}" placeholder="pillar…"
+                     style="width:220px;border:1px solid var(--line);border-radius:6px;padding:5px 8px" /></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <div class="actions" style="margin-top:12px">
+      <button type="submit" class="btn btn-primary">Save assignments</button>
+    </div>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

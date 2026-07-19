@@ -57,11 +57,14 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 # Feature routers share the Jinja environment.
 from app import routes_upload  # noqa: E402
 from app import routes_changes  # noqa: E402
+from app import routes_pillars  # noqa: E402
 
 routes_upload.init_templates(templates)
 routes_changes.init_templates(templates)
+routes_pillars.init_templates(templates)
 app.include_router(routes_upload.router)
 app.include_router(routes_changes.router)
+app.include_router(routes_pillars.router)
 
 
 @app.get("/healthz", include_in_schema=False)
