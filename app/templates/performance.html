@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Performance · NextGen{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Performance</h1>
+{% if msg %}<div class="flash flash-ok">{{ msg }}</div>{% endif %}
+
+{% set v = view %}
+
+{# ---- Fund level ---- #}
+<div class="card">
+  <h2>Fund level — NAV per share vs benchmarks</h2>
+
+  {% if not v.nav_points %}
+    <p class="muted">No NAV points yet. Add your custodian's per-share NAV below — that
+    is the honest basis for fund-level return (total value moves with subscriptions
+    and redemptions, so it is not a performance measure).</p>
+  {% else %}
+    {% if not v.benchmarks_cached %}
+      <div class="flash flash-warn" style="margin-top:0">
+        Benchmark history not loaded.
+        <form method="post" action="/performance/benchmarks/refresh" style="display:inline;margin-left:6px">
+          <button class="btn btn-primary" style="padding:4px 10px">Load QQQ / SMH / SPY</button>
+        </form>
+      </div>
+    {% endif %}
+
+    {% if v.chart %}
+      <svg viewBox="0 0 {{ v.chart.w }} {{ v.chart.h }}" width="100%" preserveAspectRatio="none" style="max-height:260px">
+        <line x1="0" y1="{{ v.chart.zero_y }}" x2="{{ v.chart.w }}" y2="{{ v.chart.zero_y }}" stroke="#E2E2E6" stroke-width="1" stroke-dasharray="3 3"/>
+        {% for ln in v.chart.lines %}
+          <polyline fill="none" stroke="{{ ln.color }}" stroke-width="{{ '2.2' if ln.is_fund else '1.4' }}" points="{{ ln.points }}"/>
+          {% for m in ln.markers %}<circle cx="{{ m[0] }}" cy="{{ m[1] }}" r="3.5" fill="{{ ln.color }}"/>{% endfor %}
+        {% endfor %}
+      </svg>
+      <div class="change-counts" style="margin-top:6px">
+        {% for ln in v.chart.lines %}
+          <span class="ct" style="border-left:10px solid {{ ln.color }};padding-left:6px">{{ ln.name }}</span>
+        {% endfor %}
+        <span class="muted" style="margin-left:auto;font-size:11px">rebased to {{ v.base_date }} = 0%</span>
+      </div>
+    {% endif %}
+
+    <table style="margin-top:14px">
+      <thead><tr><th>Return since {{ v.base_date }}{% if v.has_fund_return %} → {{ v.window_end }}{% endif %}</th><th class="num">Fund</th><th class="num">QQQ</th><th class="num">QQQ/SMH</th><th class="num">SPY</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="muted">Total return</td>
+          <td class="num sym {{ 'pos' if v.fund_return and v.fund_return>0 else 'neg' if v.fund_return and v.fund_return<0 else '' }}">
+            {{ v.fund_return|pct if v.fund_return is not none else '—' }}</td>
+          {% for k in ['QQQ','BLEND','SPY'] %}
+            {% set r = v.returns.get(k) %}
+            <td class="num {{ 'pos' if r and r>0 else 'neg' if r and r<0 else '' }}">{{ r|pct if r is not none else '—' }}</td>
+          {% endfor %}
+        </tr>
+      </tbody>
+    </table>
+    {% if not v.has_fund_return %}
+      <p class="hint">Only one NAV point so far — fund return needs a second date. Benchmarks are shown since {{ v.base_date }} for context.</p>
+    {% endif %}
+  {% endif %}
+</div>
+
+{# ---- Position level ---- #}
+{% if v.contributors %}
+<div class="card">
+  <h2>Position contribution <span class="muted" style="font-size:12px;font-weight:400">— to the fund's return vs blended cost</span></h2>
+  <p class="muted" style="margin-bottom:8px">
+    Fund unrealized return vs cost: <strong class="{{ 'pos' if v.fund_unrl_return and v.fund_unrl_return>0 else 'neg' }}">{{ v.fund_unrl_return|pct if v.fund_unrl_return is not none else '—' }}</strong>
+    on {{ v.total_cost|money }} cost basis. Contributions below sum to this. Blended cost = economic return, not an entry verdict.
+  </p>
+  <div class="split">
+    <div>
+      <h2 style="font-size:12px">Top contributors</h2>
+      <table>
+        <thead><tr><th>Ticker</th><th class="num">Return</th><th class="num">Contribution</th></tr></thead>
+        <tbody>
+        {% for c in v.contributors[:8] %}
+          <tr><td class="mono sym"><a href="/ticker/{{ c.ticker }}">{{ c.ticker }}</a></td>
+            <td class="num {{ 'pos' if c.return_vs_cost and c.return_vs_cost>0 else 'neg' if c.return_vs_cost and c.return_vs_cost<0 else '' }}">{{ c.return_vs_cost|pct if c.return_vs_cost is not none else '—' }}</td>
+            <td class="num sym {{ 'pos' if c.contribution>0 else 'neg' if c.contribution<0 else '' }}">{{ c.contribution|pct }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h2 style="font-size:12px">Detractors</h2>
+      <table>
+        <thead><tr><th>Ticker</th><th class="num">Return</th><th class="num">Contribution</th></tr></thead>
+        <tbody>
+        {% for c in v.contributors[-8:]|reverse %}
+          <tr><td class="mono sym"><a href="/ticker/{{ c.ticker }}">{{ c.ticker }}</a></td>
+            <td class="num {{ 'pos' if c.return_vs_cost and c.return_vs_cost>0 else 'neg' if c.return_vs_cost and c.return_vs_cost<0 else '' }}">{{ c.return_vs_cost|pct if c.return_vs_cost is not none else '—' }}</td>
+            <td class="num sym {{ 'pos' if c.contribution>0 else 'neg' if c.contribution<0 else '' }}">{{ c.contribution|pct }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Contribution by pillar</h2>
+  <table>
+    <thead><tr><th>Pillar</th><th class="num">Return vs cost</th><th class="num">Contribution</th></tr></thead>
+    <tbody>
+    {% for p in v.by_pillar %}
+      <tr><td class="sym">{{ p.pillar }}</td>
+        <td class="num {{ 'pos' if p.return_vs_cost and p.return_vs_cost>0 else 'neg' if p.return_vs_cost and p.return_vs_cost<0 else '' }}">{{ p.return_vs_cost|pct if p.return_vs_cost is not none else '—' }}</td>
+        <td class="num sym {{ 'pos' if p.contribution>0 else 'neg' if p.contribution<0 else '' }}">{{ p.contribution|pct }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{# ---- NAV series management ---- #}
+<div class="card">
+  <h2>NAV series</h2>
+  <form method="post" action="/performance/nav" class="form" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
+    <div><label>Date</label><input type="date" name="as_of" required style="width:auto"></div>
+    <div><label>NAV per share</label><input type="text" name="nav_per_share" placeholder="1646.90" required style="width:130px"></div>
+    <div><label>Total NAV <span class="muted">(opt)</span></label><input type="text" name="total_nav" style="width:130px"></div>
+    <div><label>Units <span class="muted">(opt)</span></label><input type="text" name="shares" style="width:110px"></div>
+    <button class="btn btn-primary">Add point</button>
+  </form>
+
+  {% if v.nav_points %}
+    <table style="margin-top:14px">
+      <thead><tr><th>Date</th><th class="num">NAV / share</th><th class="num">Total NAV</th><th class="num">Units</th><th></th></tr></thead>
+      <tbody>
+      {% for p in v.nav_points %}
+        <tr><td>{{ p.as_of }}</td>
+          <td class="num sym">{{ p.nav_per_share|money }}</td>
+          <td class="num">{{ p.total_nav|money if p.total_nav is not none else '—' }}</td>
+          <td class="num">{{ p.shares_outstanding|qty if p.shares_outstanding is not none else '—' }}</td>
+          <td class="num"><form method="post" action="/performance/nav/delete" style="margin:0"><input type="hidden" name="as_of" value="{{ p.as_of }}"><button class="btn btn-ghost" style="padding:3px 9px">Remove</button></form></td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+  <p class="hint">Or bulk import a CSV (columns <span class="mono">date, nav_per_share</span>):
+    <form method="post" action="/performance/nav/upload" enctype="multipart/form-data" style="display:inline">
+      <input type="file" name="file" accept=".csv" style="width:auto;display:inline"><button class="btn" style="padding:4px 10px">Import</button>
+    </form>
+  </p>
+</div>
+{% endblock %}

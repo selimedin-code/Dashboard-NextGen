@@ -84,6 +84,7 @@ from app import routes_pillars  # noqa: E402
 from app import routes_positions  # noqa: E402
 from app import routes_exposure  # noqa: E402
 from app import routes_ticker  # noqa: E402
+from app import routes_performance  # noqa: E402
 
 routes_upload.init_templates(templates)
 routes_changes.init_templates(templates)
@@ -91,12 +92,14 @@ routes_pillars.init_templates(templates)
 routes_positions.init_templates(templates)
 routes_exposure.init_templates(templates)
 routes_ticker.init_templates(templates)
+routes_performance.init_templates(templates)
 app.include_router(routes_upload.router)
 app.include_router(routes_changes.router)
 app.include_router(routes_pillars.router)
 app.include_router(routes_positions.router)
 app.include_router(routes_exposure.router)
 app.include_router(routes_ticker.router)
+app.include_router(routes_performance.router)
 
 
 @app.get("/healthz", include_in_schema=False)
