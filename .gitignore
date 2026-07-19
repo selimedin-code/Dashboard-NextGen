@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+.env.local
+*.env
+!.env.example
+
+# OS
+.DS_Store
+
+# Data / uploads (never commit custodian files or portfolio data)
+/uploads/
+*.xlsx
+*.xls
+CurrentPortfolio.pdf
+
+# IDE
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Local Claude Code settings
+.claude/settings.local.json

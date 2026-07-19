@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Overview · NextGen{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Overview</h1>
+
+{% if latest is none %}
+  <div class="card empty">
+    <div class="empty-badge">No data yet</div>
+    <p>No portfolio snapshot has been uploaded. The dashboard has nothing to show
+    until the first custodian holdings file is ingested.</p>
+    <p class="muted">Snapshot upload arrives in <strong>Phase 1</strong>. The
+    database schema and application skeleton are in place and ready for it.</p>
+  </div>
+{% else %}
+  {# Fail visibly: staleness is shown loudly, never hidden. #}
+  {% if staleness_days is not none and staleness_days > 7 %}
+    {% set stale_class = "badge-stale" %}
+    {% set stale_label = "STALE — " ~ staleness_days ~ " days old" %}
+  {% elif staleness_days is not none and staleness_days > 3 %}
+    {% set stale_class = "badge-warn" %}
+    {% set stale_label = staleness_days ~ " days old" %}
+  {% else %}
+    {% set stale_class = "badge-fresh" %}
+    {% set stale_label = "current" %}
+  {% endif %}
+
+  <div class="stat-row">
+    <div class="card stat">
+      <div class="stat-label">Snapshot as of</div>
+      <div class="stat-value">{{ latest.as_of }}</div>
+      <div class="badge {{ stale_class }}">{{ stale_label }}</div>
+    </div>
+    <div class="card stat">
+      <div class="stat-label">Positions</div>
+      <div class="stat-value">{{ position_count }}</div>
+    </div>
+    <div class="card stat">
+      <div class="stat-label">Snapshots on file</div>
+      <div class="stat-value">{{ snapshot_count }}</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <p class="muted">The position table, exposure analysis, and performance views
+    build on this snapshot in later phases.</p>
+  </div>
+{% endif %}
+
+<div class="card scaffold-note">
+  <h2>Scaffold status</h2>
+  <ul class="check">
+    <li>FastAPI app running behind HTTP Basic Auth</li>
+    <li>PostgreSQL schema (8 tables) managed by Alembic</li>
+    <li>Server-rendered Jinja2 templates</li>
+    <li><span class="pending">Pending</span> — snapshot upload &amp; parse (Phase 1)</li>
+  </ul>
+</div>
+{% endblock %}

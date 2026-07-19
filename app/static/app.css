@@ -1,0 +1,80 @@
+:root {
+  --bg: #0f1419;
+  --surface: #1a2029;
+  --surface-2: #232b36;
+  --border: #2e3844;
+  --text: #e6ebf1;
+  --muted: #8b98a8;
+  --accent: #4f9cf9;
+  --fresh: #3fb950;
+  --warn: #d29922;
+  --stale: #f85149;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+/* Top bar */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.5rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.brand { display: flex; align-items: center; gap: 0.6rem; text-decoration: none; color: var(--text); }
+.brand-logo { height: 26px; width: auto; }
+.brand-name { font-weight: 600; letter-spacing: 0.02em; font-size: 1.05rem; }
+.topnav { display: flex; gap: 1.25rem; align-items: center; }
+.topnav a { color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+.topnav a.active, .topnav a:hover { color: var(--text); }
+.nav-disabled { color: #55606d; font-size: 0.9rem; cursor: not-allowed; }
+
+/* Layout */
+.content { max-width: 1080px; margin: 0 auto; padding: 2rem 1.5rem; }
+.page-title { font-size: 1.5rem; margin: 0 0 1.25rem; }
+
+/* Cards */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem 1.4rem;
+  margin-bottom: 1.25rem;
+}
+.card h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }
+.muted { color: var(--muted); }
+
+/* Stat row */
+.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.25rem; }
+.stat { text-align: left; }
+.stat-label { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.stat-value { font-size: 1.8rem; font-weight: 600; margin: 0.35rem 0; font-variant-numeric: tabular-nums; }
+
+/* Badges */
+.badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+.badge-fresh { background: rgba(63,185,80,0.15); color: var(--fresh); }
+.badge-warn  { background: rgba(210,153,34,0.15); color: var(--warn); }
+.badge-stale { background: rgba(248,81,73,0.15); color: var(--stale); }
+
+/* Empty state */
+.empty .empty-badge { display: inline-block; background: var(--surface-2); color: var(--muted); padding: 0.2rem 0.7rem; border-radius: 6px; font-size: 0.8rem; margin-bottom: 0.75rem; }
+
+/* Scaffold checklist */
+.check { list-style: none; padding: 0; margin: 0; }
+.check li { padding: 0.4rem 0 0.4rem 1.6rem; position: relative; color: var(--text); }
+.check li::before { content: "✓"; position: absolute; left: 0; color: var(--fresh); font-weight: 700; }
+.check li:has(.pending)::before { content: "○"; color: var(--warn); }
+.pending { color: var(--warn); font-weight: 600; }
+
+/* Footer */
+.footer { text-align: center; color: var(--muted); font-size: 0.8rem; padding: 2rem 1.5rem; }

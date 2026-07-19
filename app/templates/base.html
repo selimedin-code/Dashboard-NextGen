@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}NextGen Fund Dashboard{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <img src="{{ url_for('static', path='logo.svg') }}" alt="VT Wealth" class="brand-logo" />
+      <span class="brand-name">NextGen</span>
+    </a>
+    <nav class="topnav">
+      <a href="/" class="active">Overview</a>
+      <span class="nav-disabled" title="Arrives in Phase 1">Upload</span>
+      <span class="nav-disabled" title="Arrives in Phase 3">Positions</span>
+    </nav>
+  </header>
+
+  <main class="content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footer">
+    <span>NextGen Fund Dashboard &middot; internal monitoring tool</span>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,36 @@
+# Render Blueprint. Deploys the web service + a managed Postgres.
+# Paid Starter tier for the web service — free spins down on inactivity, which
+# would stall the daily cron and make first page loads slow.
+#
+# Secrets (BASIC_AUTH_PASS, ALPHAVANTAGE_API_KEY, FMP_API_KEY) are set in the
+# Render dashboard, NOT here. DATABASE_URL is wired from the database below.
+
+services:
+  - type: web
+    name: nextgen-dashboard
+    runtime: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    # Run migrations on deploy, then serve. Single worker is plenty for two users.
+    startCommand: "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nextgen-db
+          property: connectionString
+      - key: APP_ENV
+        value: production
+      - key: BASIC_AUTH_USER
+        sync: false      # set in dashboard
+      - key: BASIC_AUTH_PASS
+        sync: false      # set in dashboard
+      - key: ALPHAVANTAGE_API_KEY
+        sync: false      # set in dashboard
+      - key: FMP_API_KEY
+        sync: false      # set in dashboard
+
+databases:
+  - name: nextgen-db
+    plan: basic-256mb
+    postgresMajorVersion: "16"
