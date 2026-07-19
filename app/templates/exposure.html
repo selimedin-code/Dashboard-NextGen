@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Exposure · NextGen{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Exposure &amp; concentration</h1>
+
+{% if view is none %}
+  <div class="card">
+    <div class="empty-badge">No data yet</div>
+    <p class="muted">Upload a snapshot and refresh prices to see concentration.</p>
+    <a class="btn btn-primary" href="/upload" style="margin-top:10px">Upload a snapshot &rarr;</a>
+  </div>
+{% else %}
+
+  {% if view.total_value == 0 %}
+    <div class="flash flash-warn">No live prices yet — <a href="/positions">refresh prices</a> to populate concentration.</div>
+  {% endif %}
+
+  {# Headline concentration numbers #}
+  <div class="prov">
+    <div>
+      <b>Effective # positions</b>
+      <span class="v num">{{ view.effective_n|dec1 }}</span>
+    </div>
+    <div>
+      <b>Herfindahl (HHI)</b>
+      <span class="v num">{{ view.hhi|hhi }}</span>
+    </div>
+    <div class="{{ 'age-stale' if view.top10 > 0.5 else ('age-warn' if view.top10 > 0.4 else '') }}">
+      <b>Top 10 weight</b>
+      <span class="v num">{{ view.top10|pct_plain }}</span>
+    </div>
+    <div>
+      <b>Cash</b>
+      <span class="v num">{{ view.cash_pct|pct_plain }}</span>
+    </div>
+  </div>
+
+  <p class="muted" style="margin:-2px 0 12px">
+    {{ view.name_count }} priced names · invested {{ view.invested_value|money }} of {{ view.total_value|money }}
+    · snapshot {{ view.as_of }}. Effective N and HHI are on invested (ex-cash) weights;
+    top-N and single-name weights are % of the whole fund.
+    {% if view.unpriced %}<br><span class="age-stale">Excludes {{ view.unpriced|length }} unpriced: {{ view.unpriced|join(', ') }}.</span>{% endif %}
+  </p>
+
+  {# Concentration ladder + single-name flags #}
+  <div class="split">
+    <div class="card">
+      <h2>Concentration</h2>
+      <table>
+        <tbody>
+          <tr><td>Top 5 names</td><td class="num sym">{{ view.top5|pct_plain }}</td></tr>
+          <tr><td>Top 10 names</td><td class="num sym">{{ view.top10|pct_plain }}</td></tr>
+          <tr><td>Top 20 names</td><td class="num sym">{{ view.top20|pct_plain }}</td></tr>
+          <tr><td>Effective number of positions</td><td class="num sym">{{ view.effective_n|dec1 }}</td></tr>
+        </tbody>
+      </table>
+      <p class="hint">Effective N = 1 / Σweight² — the count of equal-weight positions this book is as concentrated as (vs {{ view.name_count }} actual names).</p>
+    </div>
+
+    <div class="card">
+      <h2>Single-name flags</h2>
+      {% if view.flags %}
+        <table>
+          <tbody>
+          {% for h in view.flags %}
+            <tr>
+              <td class="mono sym">{{ h.ticker }}</td>
+              <td>{% if h.flag == 'high' %}<span class="chip close">≥ 8%</span>{% else %}<span class="chip trim">≥ 5%</span>{% endif %}</td>
+              <td class="num">{{ h.fund_weight|pct_plain }}</td>
+              <td class="small">{{ h.pillar or "" }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="muted">No single position exceeds 5% of the fund.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {# By pillar #}
+  <div class="card">
+    <h2>By pillar</h2>
+    {% set maxw = view.pillars[0].fund_weight if view.pillars else 0 %}
+    <table>
+      <thead><tr><th>Pillar</th><th class="num">Names</th><th class="num">Market value</th><th class="num">Weight</th><th>Weight</th><th>Benchmark</th></tr></thead>
+      <tbody>
+      {% for p in view.pillars %}
+        <tr>
+          <td class="sym">{{ p.name }}</td>
+          <td class="num">{{ p.count }}</td>
+          <td class="num">{{ p.market_value|money }}</td>
+          <td class="num">{{ p.fund_weight|pct_plain }}</td>
+          <td style="width:220px">
+            <div class="pbar"><i style="width:{{ (p.fund_weight / maxw * 100) if maxw else 0 }}%"></i></div>
+          </td>
+          <td class="small">{% if p.etf %}<span class="mono">{{ p.etf }}</span>{% if p.caveat %} <span class="muted" title="{{ p.caveat }}">⚠</span>{% endif %}{% else %}<span class="muted">—</span>{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="hint">Pillar weights are % of the whole fund; they sum to {{ (1 - view.cash_pct)|pct_plain }} (the rest is cash).</p>
+  </div>
+
+  {# Top holdings ladder #}
+  <div class="card">
+    <h2>Top holdings</h2>
+    <table>
+      <thead><tr><th class="num">#</th><th>Ticker</th><th>Pillar</th><th class="num">Market value</th><th class="num">Weight</th><th class="num">Cumulative</th></tr></thead>
+      <tbody>
+      {% for h in view.holdings[:20] %}
+        <tr>
+          <td class="num small">{{ h.rank }}</td>
+          <td class="mono sym">{{ h.ticker }}{% if h.flag == 'high' %} <span class="chip close">≥8%</span>{% elif h.flag == 'warn' %} <span class="chip trim">≥5%</span>{% endif %}</td>
+          <td class="small">{{ h.pillar or "" }}</td>
+          <td class="num">{{ h.market_value|money }}</td>
+          <td class="num">{{ h.fund_weight|pct_plain }}</td>
+          <td class="num muted">{{ h.cumulative|pct_plain }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="hint">Showing the top 20 of {{ view.name_count }} names.</p>
+  </div>
+{% endif %}
+{% endblock %}
