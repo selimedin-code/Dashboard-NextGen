@@ -62,3 +62,21 @@ def ticker_note(ticker: str, thesis_note: str = Form(""), session: Session = Dep
     sec.thesis_note = thesis_note.strip() or None
     session.commit()
     return RedirectResponse(url=f"/ticker/{ticker}?saved=1", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/ticker/{ticker}/stop")
+def ticker_stop(ticker: str, stop_price: str = Form(""), session: Session = Depends(get_session)):
+    from decimal import Decimal, InvalidOperation
+
+    ticker = ticker.upper()
+    sec = session.get(Security, ticker)
+    if sec is None:
+        sec = Security(ticker=ticker, active=False)
+        session.add(sec)
+    s = (stop_price or "").strip().replace(",", "")
+    try:
+        sec.stop_price = Decimal(s) if s else None
+    except InvalidOperation:
+        sec.stop_price = None
+    session.commit()
+    return RedirectResponse(url=f"/ticker/{ticker}?saved=1", status_code=status.HTTP_303_SEE_OTHER)

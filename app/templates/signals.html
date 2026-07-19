@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Signals · NextGen{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Signals</h1>
+{% if msg %}<div class="flash flash-ok">{{ msg }}</div>{% endif %}
+
+{% set v = view %}
+{% if v.as_of is none %}
+  <div class="card"><div class="empty-badge">No data yet</div>
+    <p class="muted">Upload a snapshot and refresh prices to see signals.</p></div>
+{% else %}
+
+  <div class="card" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <div class="muted">
+      {{ v.total }} flag(s) · snapshot {{ v.as_of }} ·
+      fundamentals cached for <strong>{{ v.fundamentals_coverage }}/{{ v.held_count }}</strong> holdings
+      {% if v.fundamentals_coverage < v.held_count %}<span class="age-warn">(trend / earnings / news only cover what's cached)</span>{% endif %}
+    </div>
+    <div style="margin-left:auto;display:flex;gap:8px">
+      <form method="post" action="/positions/refresh" style="margin:0"><button class="btn">Refresh prices</button></form>
+      <form method="post" action="/signals/refresh-fundamentals" style="margin:0"><button class="btn btn-primary">Refresh all fundamentals</button></form>
+    </div>
+  </div>
+
+  {% if v.total == 0 %}
+    <div class="card"><p class="muted">No flags right now — nothing breaching a threshold. That is the good state.</p></div>
+  {% endif %}
+
+  {% for title, key, items in v.sections() %}
+    {% if items %}
+    <div class="card">
+      <h2>{{ title }} <span class="muted" style="font-size:12px;font-weight:400">— {{ items|length }}</span></h2>
+      <table>
+        <tbody>
+        {% for s in items %}
+          <tr>
+            <td style="width:70px">
+              {% if s.severity == 'high' %}<span class="chip close">high</span>
+              {% elif s.severity == 'warn' %}<span class="chip trim">watch</span>
+              {% else %}<span class="chip hold">info</span>{% endif %}
+            </td>
+            <td class="mono sym" style="width:90px">{% if s.ticker in ['TOP 10'] or ' ' in s.ticker %}{{ s.ticker }}{% else %}<a href="/ticker/{{ s.ticker }}">{{ s.ticker }}</a>{% endif %}</td>
+            <td>{{ s.headline }}</td>
+            <td class="small muted">{{ s.detail }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  {% endfor %}
+
+  <p class="hint">Thresholds: single-day move ≥5% (≥8% high); price below 50/200-day average;
+  stop breached or within 3%; earnings within 14 days; single name ≥5% (≥8% high),
+  top-10 &gt;45%, pillar &gt;35%; news within 3 days. Set stops on each ticker's page.</p>
+{% endif %}
+{% endblock %}

@@ -123,6 +123,33 @@ def refresh_ticker(session: Session, ticker: str, *, client: FMPClient | None = 
     return status
 
 
+def refresh_all_fundamentals(session: Session, tickers: list[str] | None = None) -> dict:
+    """Refresh fundamentals for every held ticker (or a given list), reusing one
+    client. One ticker failing never aborts the batch. Returns a summary."""
+    from app.prices import held_tickers_with_exchange
+
+    if tickers is None:
+        tickers = [t for t, _ in held_tickers_with_exchange(session)]
+
+    key = get_settings().fmp_api_key
+    if not key:
+        raise RuntimeError("FMP_API_KEY is not set.")
+    client = FMPClient(key, min_interval=0.03)
+    ok = failed = 0
+    errors: list[str] = []
+    try:
+        for t in tickers:
+            try:
+                refresh_ticker(session, t, client=client)
+                ok += 1
+            except Exception as exc:  # noqa: BLE001
+                failed += 1
+                errors.append(f"{t}: {exc}")
+    finally:
+        client.close()
+    return {"ok": ok, "failed": failed, "total": len(tickers), "errors": errors[:10]}
+
+
 def _store_history(session: Session, ticker: str, history: list) -> list[tuple[str, Decimal]]:
     # FMP returns newest-first; keep the most recent HISTORY_KEEP, store oldest-first.
     pts: list[tuple[str, Decimal]] = []
