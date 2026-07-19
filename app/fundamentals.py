@@ -143,8 +143,10 @@ def refresh_all_fundamentals(session: Session, tickers: list[str] | None = None)
                 refresh_ticker(session, t, client=client)
                 ok += 1
             except Exception as exc:  # noqa: BLE001
+                # Roll back so a failed ticker never poisons the next one's transaction.
+                session.rollback()
                 failed += 1
-                errors.append(f"{t}: {exc}")
+                errors.append(f"{t}: {str(exc)[:120]}")
     finally:
         client.close()
     return {"ok": ok, "failed": failed, "total": len(tickers), "errors": errors[:10]}
@@ -258,11 +260,20 @@ def _upsert_estimates(session, ticker, as_of, estimates) -> None:
 
 
 def _upsert_earnings(session, ticker, earnings) -> None:
+    # Dedupe within the payload first — a provider occasionally returns two rows
+    # for the same fiscal date (e.g. XNDU), which would violate the unique key.
+    latest: dict[date, dict] = {}
     for e in earnings:
         d = e.get("date")
         if not d:
             continue
         fiscal = date.fromisoformat(d[:10])
+        prev = latest.get(fiscal)
+        # Prefer the row that has an actual EPS (a reported quarter over a stub).
+        if prev is None or (e.get("epsActual") is not None and prev.get("epsActual") is None):
+            latest[fiscal] = e
+
+    for fiscal, e in latest.items():
         actual = _dec(e.get("epsActual"))
         est = _dec(e.get("epsEstimated"))
         surprise = ((actual - est) / abs(est) * 100) if (actual is not None and est) else None

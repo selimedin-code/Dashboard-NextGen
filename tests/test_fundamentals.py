@@ -158,3 +158,27 @@ def test_detail_for_unheld_ticker(session):
     assert d.held is False
     assert d.position is None
     assert d.fundamentals is None
+
+
+def test_earnings_duplicate_fiscal_date_deduped(session):
+    """A provider returning two rows for the same fiscal date must not blow up the
+    unique key (regression: XNDU in the bulk refresh)."""
+    _held_nvda(session)
+
+    class DupFMP(FakeFMP):
+        def request(self, path, **params):
+            if path == "earnings":
+                return [
+                    {"date": "2026-08-05", "epsActual": None, "epsEstimated": -0.37},
+                    {"date": "2026-08-05", "epsActual": None, "epsEstimated": -0.235},
+                ]
+            return super().request(path, **params)
+
+    status = refresh_ticker(session, "NVDA", client=DupFMP())   # must not raise
+    assert status["earnings"] == "ok"
+    from app.models import EarningsHistory
+    rows = session.execute(
+        select(EarningsHistory).where(EarningsHistory.ticker == "NVDA",
+                                      EarningsHistory.fiscal_ending == date(2026, 8, 5))
+    ).scalars().all()
+    assert len(rows) == 1
