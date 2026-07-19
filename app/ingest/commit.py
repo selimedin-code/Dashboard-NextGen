@@ -13,6 +13,7 @@ from datetime import date
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.ingest.diff import rebuild_changes
 from app.ingest.parser import ParsedHolding
 from app.models import HoldingSnapshot, Security, Snapshot
 
@@ -62,6 +63,11 @@ def commit_snapshot(
         if h.is_cash:
             continue
         _upsert_security(session, h, as_of, pillar_assignments.get(h.ticker))
+
+    # Phase 2: rebuild the change history in the same transaction. Cheap, and
+    # correct even when this snapshot lands between two existing ones.
+    session.flush()
+    rebuild_changes(session, commit=False)
 
     session.commit()
     return snapshot

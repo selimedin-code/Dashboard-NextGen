@@ -120,8 +120,12 @@ class Change(Base):
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    from_snapshot: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("snapshots.id"))
-    to_snapshot: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("snapshots.id"))
+    from_snapshot: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("snapshots.id", ondelete="CASCADE")
+    )
+    to_snapshot: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("snapshots.id", ondelete="CASCADE")
+    )
     ticker: Mapped[str] = mapped_column(Text, nullable=False)
     change_type: Mapped[str] = mapped_column(Text, nullable=False)  # OPEN|CLOSE|ADD|TRIM|HOLD
     units_before: Mapped[float | None] = mapped_column(Money)
