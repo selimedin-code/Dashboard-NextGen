@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Upload snapshot · NextGen{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Upload a snapshot</h1>
+
+{% if errors %}
+  <div class="flash flash-err">
+    <strong>Could not read the file:</strong>
+    <ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+  </div>
+{% endif %}
+
+<div class="card">
+  <form method="post" action="/upload" enctype="multipart/form-data" class="form">
+    <div class="field">
+      <label for="file">Custodian holdings file</label>
+      <input type="file" id="file" name="file" accept=".xlsx,.xlsm,.pdf" required />
+      <p class="hint">Excel (.xlsx) is preferred and most reliable. PDF is supported
+      as a fallback for the rendered custodian report.</p>
+    </div>
+
+    <div class="field">
+      <label for="as_of">Snapshot date (as of)</label>
+      <input type="date" id="as_of" name="as_of" value="{{ today }}" required />
+      <p class="hint">The date this holdings picture is valid for. Captured here
+      because it is not reliably present in the file itself.</p>
+    </div>
+
+    <div class="field">
+      <label for="notes">Notes (optional)</label>
+      <input type="text" id="notes" name="notes" value="{{ notes or '' }}"
+             placeholder="e.g. month-end, post-subscription" />
+    </div>
+
+    <div class="actions">
+      <button type="submit" class="btn btn-primary">Parse &amp; preview &rarr;</button>
+    </div>
+    <p class="hint">Nothing is saved yet — you will review a full preview of what
+    changes before committing.</p>
+  </form>
+</div>
+{% endblock %}

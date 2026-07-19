@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Preview snapshot · NextGen{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Preview &amp; confirm</h1>
+
+<p class="muted">
+  {{ filename }} · parsed as <strong>{{ source_format|upper }}</strong> ·
+  as of <strong>{{ as_of }}</strong>
+  {% if validation.prior_as_of %} · compared to {{ validation.prior_as_of }}{% else %} · first snapshot{% endif %}
+</p>
+
+{% if commit_error %}
+  <div class="flash flash-err">{{ commit_error }}</div>
+{% endif %}
+
+{% if validation.blocking %}
+  <div class="flash flash-err">
+    <strong>Blocking issues — must be fixed before committing:</strong>
+    <ul>{% for b in validation.blocking %}<li>{{ b }}</li>{% endfor %}</ul>
+  </div>
+{% endif %}
+
+{% if validation.warnings %}
+  <div class="flash flash-warn">
+    <strong>Warnings — review, then you may proceed:</strong>
+    <ul>{% for w in validation.warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+  </div>
+{% endif %}
+
+<div class="stat-row">
+  <div class="card stat"><div class="stat-label">Positions</div><div class="stat-value">{{ position_count }}</div></div>
+  <div class="card stat"><div class="stat-label">Cost basis (units × cost)</div><div class="stat-value">{{ cost_basis_total|money }}</div></div>
+  <div class="card stat">
+    <div class="stat-label">Changes vs prior</div>
+    <div class="change-counts">
+      <span class="ct ct-open">{{ counts.OPEN }} open</span>
+      <span class="ct ct-add">{{ counts.ADD }} add</span>
+      <span class="ct ct-trim">{{ counts.TRIM }} trim</span>
+      <span class="ct ct-close">{{ counts.CLOSE }} close</span>
+      <span class="ct ct-hold">{{ counts.HOLD }} hold</span>
+    </div>
+  </div>
+</div>
+
+<form method="post" action="/upload/commit" class="form">
+  <input type="hidden" name="token" value="{{ token }}" />
+
+  {# New tickers need a pillar assignment before they enter the 11-pillar framework. #}
+  {% if validation.new_tickers %}
+    <div class="card">
+      <h2>New tickers — assign a pillar</h2>
+      <p class="muted">These are not yet in the securities table. Assign each to a
+      pillar (reuse an existing name or type a new one). Optional, but recommended.</p>
+      <datalist id="pillars">
+        {% for p in existing_pillars %}<option value="{{ p }}">{% endfor %}
+      </datalist>
+      <div class="pillar-grid">
+        {% for t in validation.new_tickers %}
+          <label class="pillar-row">
+            <span class="pillar-ticker">{{ t }}</span>
+            <input type="text" name="pillar__{{ t }}" list="pillars" placeholder="pillar…" />
+          </label>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  {# Change list — the main defense against the wrong file/date. #}
+  <div class="card">
+    <h2>What will change</h2>
+    {% if validation.changes %}
+      <table class="grid">
+        <thead><tr><th>Ticker</th><th>Change</th><th class="num">Units before</th><th class="num">Units after</th><th class="num">Δ units</th><th class="num">Δ %</th></tr></thead>
+        <tbody>
+        {% for c in validation.changes %}
+          <tr>
+            <td class="mono">{{ c.ticker }}</td>
+            <td><span class="tag tag-{{ c.change_type|lower }}">{{ c.change_type }}</span></td>
+            <td class="num">{{ c.units_before|qty }}</td>
+            <td class="num">{{ c.units_after|qty }}</td>
+            <td class="num">{{ c.units_delta|qty }}</td>
+            <td class="num">{{ c.pct_delta|pct if c.pct_delta is not none else "—" }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">No prior snapshot — every position is an opening position.</p>
+    {% endif %}
+  </div>
+
+  {# Full parsed holdings, so the user can eyeball the numbers against the file. #}
+  <div class="card">
+    <h2>Parsed holdings ({{ position_count }})</h2>
+    <table class="grid">
+      <thead><tr><th>Ticker</th><th>Exch</th><th>ISIN</th><th>Name</th><th class="num">Units</th><th class="num">Avg cost</th></tr></thead>
+      <tbody>
+      {% for h in holdings %}
+        <tr {% if h.is_cash %}class="row-cash"{% endif %}>
+          <td class="mono">{{ h.ticker }}</td>
+          <td>{{ h.exchange or "" }}</td>
+          <td class="mono small">{{ h.isin or "" }}</td>
+          <td>{{ h.name or "" }}</td>
+          <td class="num">{{ h.units|qty }}</td>
+          <td class="num">{{ h.avg_cost|money }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card commit-bar">
+    {% if validation.duplicate_as_of %}
+      <label class="overwrite">
+        <input type="checkbox" name="overwrite" value="yes" />
+        A snapshot for <strong>{{ as_of }}</strong> already exists — replace it.
+      </label>
+    {% endif %}
+    <div class="actions">
+      <button type="submit" class="btn btn-primary" {% if not validation.ok_to_commit %}disabled{% endif %}>
+        Commit snapshot
+      </button>
+      <a href="/upload" class="btn btn-ghost">Cancel</a>
+    </div>
+    {% if not validation.ok_to_commit %}
+      <p class="hint">Resolve the blocking issues above to enable commit.</p>
+    {% endif %}
+  </div>
+</form>
+{% endblock %}

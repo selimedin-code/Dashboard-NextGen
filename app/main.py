@@ -25,8 +25,40 @@ from app.models import HoldingSnapshot, Snapshot
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
+
+def _fmt_money(value) -> str:
+    if value is None:
+        return "—"
+    return f"{value:,.2f}"
+
+
+def _fmt_qty(value) -> str:
+    """Share quantities: trim trailing zeros but keep fractional units visible."""
+    if value is None:
+        return "—"
+    s = f"{value:,.6f}".rstrip("0").rstrip(".")
+    return s or "0"
+
+
+def _fmt_pct(value) -> str:
+    """value is a fraction; 0.05 -> '+5.0%'."""
+    if value is None:
+        return "—"
+    return f"{value * 100:+.1f}%"
+
+
+templates.env.filters["money"] = _fmt_money
+templates.env.filters["qty"] = _fmt_qty
+templates.env.filters["pct"] = _fmt_pct
+
 app = FastAPI(title="NextGen Fund Dashboard", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+
+# Upload routes (Phase 1). The router shares the Jinja environment.
+from app import routes_upload  # noqa: E402
+
+routes_upload.init_templates(templates)
+app.include_router(routes_upload.router)
 
 
 @app.get("/healthz", include_in_schema=False)
@@ -54,6 +86,7 @@ def healthz() -> JSONResponse:
 @app.get("/", response_class=HTMLResponse)
 def home(
     request: Request,
+    committed: str | None = None,
     _user: str = Depends(require_auth),
     session: Session = Depends(get_session),
 ) -> HTMLResponse:
@@ -89,5 +122,6 @@ def home(
             "staleness_days": staleness_days,
             "snapshot_count": snapshot_count,
             "now": datetime.now(timezone.utc),
+            "committed": committed,
         },
     )

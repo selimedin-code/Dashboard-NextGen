@@ -302,3 +302,30 @@ class NewsItem(Base):
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+# ---------------------------------------------------------------------------
+# Upload staging  (Phase 1 — carries a parsed file between preview and commit)
+# ---------------------------------------------------------------------------
+
+
+class UploadStaging(Base):
+    """A parsed-but-not-committed upload, held between the preview and commit steps.
+
+    Stored in the DB (not in-process memory or on disk) so the two-step flow
+    survives a worker restart and works regardless of which worker handles each
+    request. Parsed holdings live in `parsed` as JSON with numbers as strings, to
+    preserve Decimal exactly. Rows are short-lived; prune on commit or by age.
+    """
+
+    __tablename__ = "upload_staging"
+
+    token: Mapped[str] = mapped_column(Text, primary_key=True)
+    as_of: Mapped[date] = mapped_column(Date, nullable=False)
+    filename: Mapped[str | None] = mapped_column(Text)
+    notes: Mapped[str | None] = mapped_column(Text)
+    source_format: Mapped[str | None] = mapped_column(Text)
+    parsed: Mapped[list] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

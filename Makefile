@@ -38,3 +38,8 @@ revision:
 .PHONY: dev
 dev:
 	.venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+
+.PHONY: test
+test:
+	$(PG_BIN)/createdb nextgen_test 2>/dev/null || true
+	.venv/bin/python -m pytest tests/ -q

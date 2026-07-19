@@ -4,13 +4,16 @@
 {% block content %}
 <h1 class="page-title">Overview</h1>
 
+{% if committed %}
+  <div class="flash flash-ok">Snapshot for <strong>{{ committed }}</strong> committed successfully.</div>
+{% endif %}
+
 {% if latest is none %}
   <div class="card empty">
     <div class="empty-badge">No data yet</div>
-    <p>No portfolio snapshot has been uploaded. The dashboard has nothing to show
-    until the first custodian holdings file is ingested.</p>
-    <p class="muted">Snapshot upload arrives in <strong>Phase 1</strong>. The
-    database schema and application skeleton are in place and ready for it.</p>
+    <p>No portfolio snapshot has been uploaded yet. The dashboard has nothing to
+    show until the first custodian holdings file is ingested.</p>
+    <p><a class="btn" href="/upload">Upload a snapshot &rarr;</a></p>
   </div>
 {% else %}
   {# Fail visibly: staleness is shown loudly, never hidden. #}
@@ -53,7 +56,8 @@
     <li>FastAPI app running behind HTTP Basic Auth</li>
     <li>PostgreSQL schema (8 tables) managed by Alembic</li>
     <li>Server-rendered Jinja2 templates</li>
-    <li><span class="pending">Pending</span> — snapshot upload &amp; parse (Phase 1)</li>
+    <li>Snapshot upload, parse, validate &amp; commit (Phase 1)</li>
+    <li><span class="pending">Pending</span> — diff engine &amp; position table (Phase 2&ndash;3)</li>
   </ul>
 </div>
 {% endblock %}
