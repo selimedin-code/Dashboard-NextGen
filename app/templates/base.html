@@ -4,27 +4,29 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{% block title %}NextGen Fund Dashboard{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}" />
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="/">
-      <img src="{{ url_for('static', path='logo.svg') }}" alt="VT Wealth" class="brand-logo" />
-      <span class="brand-name">NextGen</span>
-    </a>
-    <nav class="topnav">
-      <a href="/">Overview</a>
-      <a href="/upload">Upload</a>
-      <span class="nav-disabled" title="Arrives in Phase 3">Positions</span>
+  <div class="wrap">
+    {% set path = request.url.path %}
+    <nav class="nav">
+      <a class="nav-brand" href="/">
+        <img src="{{ url_for('static', path='logo.svg') }}" alt="VT Wealth" />
+        <b>NextGen</b>
+      </a>
+      <div class="nvt-grp">
+        <a href="/" class="nvt{{ ' nvt-on' if path == '/' else '' }}">Overview</a>
+        <a href="/upload" class="nvt{{ ' nvt-on' if path.startswith('/upload') else '' }}">Upload</a>
+        <span class="nvt-disabled" title="Arrives in Phase 3">Positions</span>
+      </div>
     </nav>
-  </header>
 
-  <main class="content">
     {% block content %}{% endblock %}
-  </main>
 
-  <footer class="footer">
-    <span>NextGen Fund Dashboard &middot; internal monitoring tool</span>
-  </footer>
+    <footer>NextGen Fund Dashboard &middot; internal monitoring tool</footer>
+  </div>
 </body>
 </html>

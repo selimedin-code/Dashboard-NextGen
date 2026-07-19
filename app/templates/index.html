@@ -9,55 +9,53 @@
 {% endif %}
 
 {% if latest is none %}
-  <div class="card empty">
+  <div class="card">
     <div class="empty-badge">No data yet</div>
-    <p>No portfolio snapshot has been uploaded yet. The dashboard has nothing to
-    show until the first custodian holdings file is ingested.</p>
-    <p><a class="btn" href="/upload">Upload a snapshot &rarr;</a></p>
+    <p class="muted" style="margin-bottom:12px">No portfolio snapshot has been uploaded yet.
+    The dashboard has nothing to show until the first custodian holdings file is ingested.</p>
+    <a class="btn btn-primary" href="/upload">Upload a snapshot &rarr;</a>
   </div>
 {% else %}
-  {# Fail visibly: staleness is shown loudly, never hidden. #}
+  {# Provenance strip — the Edinos signature: how old is this, and how much of it? #}
   {% if staleness_days is not none and staleness_days > 7 %}
-    {% set stale_class = "badge-stale" %}
-    {% set stale_label = "STALE — " ~ staleness_days ~ " days old" %}
+    {% set age_class, age_label = "age-stale", "stale — " ~ staleness_days ~ " days old" %}
   {% elif staleness_days is not none and staleness_days > 3 %}
-    {% set stale_class = "badge-warn" %}
-    {% set stale_label = staleness_days ~ " days old" %}
+    {% set age_class, age_label = "age-warn", staleness_days ~ " days old" %}
   {% else %}
-    {% set stale_class = "badge-fresh" %}
-    {% set stale_label = "current" %}
+    {% set age_class, age_label = "age-fresh", ("current" if staleness_days == 0 else staleness_days ~ " day" ~ ("s" if staleness_days != 1 else "") ~ " old") %}
   {% endif %}
-
-  <div class="stat-row">
-    <div class="card stat">
-      <div class="stat-label">Snapshot as of</div>
-      <div class="stat-value">{{ latest.as_of }}</div>
-      <div class="badge {{ stale_class }}">{{ stale_label }}</div>
+  <div class="prov">
+    <div>
+      <b>Snapshot as of</b>
+      <span class="v num">{{ latest.as_of }}</span>
     </div>
-    <div class="card stat">
-      <div class="stat-label">Positions</div>
-      <div class="stat-value">{{ position_count }}</div>
+    <div class="{{ age_class }}">
+      <b>Freshness</b>
+      <span class="v">{{ age_label }}</span>
     </div>
-    <div class="card stat">
-      <div class="stat-label">Snapshots on file</div>
-      <div class="stat-value">{{ snapshot_count }}</div>
+    <div>
+      <b>Positions</b>
+      <span class="v num">{{ position_count }}</span>
+    </div>
+    <div>
+      <b>Snapshots on file</b>
+      <span class="v num">{{ snapshot_count }}</span>
     </div>
   </div>
 
   <div class="card">
-    <p class="muted">The position table, exposure analysis, and performance views
-    build on this snapshot in later phases.</p>
+    <p class="muted">The position table, exposure analysis, and performance views build on
+    this snapshot in later phases.</p>
   </div>
 {% endif %}
 
-<div class="card scaffold-note">
-  <h2>Scaffold status</h2>
-  <ul class="check">
-    <li>FastAPI app running behind HTTP Basic Auth</li>
-    <li>PostgreSQL schema (8 tables) managed by Alembic</li>
-    <li>Server-rendered Jinja2 templates</li>
-    <li>Snapshot upload, parse, validate &amp; commit (Phase 1)</li>
-    <li><span class="pending">Pending</span> — diff engine &amp; position table (Phase 2&ndash;3)</li>
-  </ul>
+<div class="card">
+  <h2>Build status</h2>
+  <div class="change-counts" style="margin-top:8px">
+    <span class="ct ct-open">Scaffold</span>
+    <span class="ct ct-open">Phase 1 · upload &amp; ingest</span>
+    <span class="ct">Phase 2 · diff engine</span>
+    <span class="ct">Phase 3 · position table</span>
+  </div>
 </div>
 {% endblock %}

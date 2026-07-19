@@ -30,3 +30,4 @@ CurrentPortfolio.pdf
 
 # Local Claude Code settings
 .claude/settings.local.json
+.preview/
