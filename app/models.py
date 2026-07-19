@@ -86,11 +86,25 @@ class HoldingSnapshot(Base):
     snapshot: Mapped[Snapshot] = relationship(back_populates="holdings")
 
 
+class Pillar(Base):
+    """The thematic framework: one row per pillar (P01..P13), with the benchmark
+    ETF(s) and any honest caveat about ETF fit. Reference data, seeded from file."""
+
+    __tablename__ = "pillars"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)      # e.g. "P01"
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    primary_etf: Mapped[str | None] = mapped_column(Text)
+    alt_etf: Mapped[str | None] = mapped_column(Text)
+    caveat: Mapped[str | None] = mapped_column(Text)
+
+
 class Security(Base):
     """Persistent per-ticker metadata that survives across snapshots.
 
-    This is where the 11-pillar framework assignment and editable thesis notes
-    live. `ticker` is the primary key by design.
+    This is where the pillar framework assignment and editable thesis notes live.
+    `ticker` is the primary key by design. `pillar` holds the denormalized pillar
+    NAME (what the UI shows); `pillar_id`/`crossref_pillar_id` link to `pillars`.
     """
 
     __tablename__ = "securities"
@@ -98,7 +112,13 @@ class Security(Base):
     ticker: Mapped[str] = mapped_column(Text, primary_key=True)
     name: Mapped[str | None] = mapped_column(Text)
     exchange: Mapped[str | None] = mapped_column(Text)  # from the suffix: US, GR, ...
-    pillar: Mapped[str | None] = mapped_column(Text)  # the 11-pillar framework
+    pillar: Mapped[str | None] = mapped_column(Text)  # denormalized pillar name
+    pillar_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("pillars.id", ondelete="SET NULL")
+    )
+    crossref_pillar_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("pillars.id", ondelete="SET NULL")
+    )
     isin: Mapped[str | None] = mapped_column(Text)  # validated attribute, not a key
     thesis_note: Mapped[str | None] = mapped_column(Text)
     stop_price: Mapped[float | None] = mapped_column(Money)

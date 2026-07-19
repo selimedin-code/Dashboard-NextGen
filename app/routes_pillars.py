@@ -15,7 +15,8 @@ from sqlalchemy.orm import Session
 from app.auth import require_auth
 from app.db import get_session
 from app.ingest.pillars import PillarParseError, apply_pillars, parse_pillar_file
-from app.models import HoldingSnapshot, Security, Snapshot
+from app.ingest.seed import SeedFormatError, detect_kind, import_from_csv
+from app.models import HoldingSnapshot, Pillar, Security, Snapshot
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 templates: Jinja2Templates = None
@@ -42,22 +43,30 @@ def _held_tickers(session: Session) -> list[str]:
 
 
 def _page_context(session: Session, **extra) -> dict:
-    held = _held_tickers(session)
+    held = set(_held_tickers(session))
     secs = {
         s.ticker: s for s in session.execute(select(Security)).scalars().all()
     }
     rows = [{"ticker": t, "pillar": (secs[t].pillar if t in secs else None),
-             "name": (secs[t].name if t in secs else None)} for t in held]
+             "name": (secs[t].name if t in secs else None)} for t in sorted(held)]
     existing_pillars = sorted({s.pillar for s in secs.values() if s.pillar})
-    # per-pillar counts across held names, for the summary
-    counts: dict[str, int] = {}
-    for r in rows:
-        key = r["pillar"] or "— unassigned —"
-        counts[key] = counts.get(key, 0) + 1
     unassigned = sum(1 for r in rows if not r["pillar"])
+
+    # Taxonomy: one row per pillar, with the count of HELD names in it.
+    pillars = session.execute(select(Pillar).order_by(Pillar.id)).scalars().all()
+    held_by_pid: dict[str, int] = {}
+    for t in held:
+        pid = secs[t].pillar_id if t in secs else None
+        if pid:
+            held_by_pid[pid] = held_by_pid.get(pid, 0) + 1
+    taxonomy = [{
+        "id": p.id, "name": p.name, "primary_etf": p.primary_etf,
+        "alt_etf": p.alt_etf, "caveat": p.caveat, "held": held_by_pid.get(p.id, 0),
+    } for p in pillars]
+
     ctx = {
         "rows": rows, "existing_pillars": existing_pillars,
-        "pillar_counts": sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])),
+        "taxonomy": taxonomy,
         "held_count": len(rows), "unassigned": unassigned,
     }
     ctx.update(extra)
@@ -90,22 +99,42 @@ async def pillars_upload(
     session: Session = Depends(get_session),
 ):
     data = await file.read()
+    filename = file.filename or "upload"
+
+    # A CSV may be the pillar taxonomy or the securities seed; detect and route.
+    # Anything else falls back to the simple Ticker,Pillar mapping.
+    is_seed = filename.lower().endswith(".csv")
+    if is_seed:
+        try:
+            rows0 = data.decode("utf-8-sig", errors="replace").splitlines()
+            headers = set(rows0[0].split(",")) if rows0 else set()
+            is_seed = detect_kind(headers) != "unknown"
+        except Exception:
+            is_seed = False
+
     try:
-        mapping = parse_pillar_file(file.filename or "upload", data)
-    except PillarParseError as exc:
+        if is_seed:
+            summary = import_from_csv(session, filename, data)
+            session.commit()
+            if summary["kind"] == "pillars":
+                msg = (f"Imported pillar taxonomy: {summary['created']} added, "
+                       f"{summary['updated']} updated.")
+            else:
+                msg = (f"Imported securities seed: {summary['updated']} updated, "
+                       f"{summary['created']} added — names, ISINs and pillars set.")
+        else:
+            mapping = parse_pillar_file(filename, data)
+            result = apply_pillars(session, mapping, create_missing=True)
+            session.commit()
+            msg = (f"Applied {result['updated'] + result['created']} pillar assignments "
+                   f"({result['updated']} updated, {result['created']} pre-registered).")
+    except (PillarParseError, SeedFormatError) as exc:
         return templates.TemplateResponse(
             request, "pillars.html",
             _page_context(session, upload_error=str(exc)),
             status_code=status.HTTP_400_BAD_REQUEST,
         )
-    result = apply_pillars(session, mapping, create_missing=True)
-    session.commit()
+
     return templates.TemplateResponse(
-        request, "pillars.html",
-        _page_context(
-            session,
-            upload_result=f"Applied {result['updated'] + result['created']} pillar assignments "
-                          f"({result['updated']} updated, {result['created']} pre-registered for "
-                          f"tickers not yet held).",
-        ),
+        request, "pillars.html", _page_context(session, upload_result=msg)
     )

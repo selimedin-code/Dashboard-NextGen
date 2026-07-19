@@ -24,10 +24,11 @@
 
 <div class="card">
   <h2>Bulk upload</h2>
-  <p class="muted">A <strong>.xlsx</strong> or <strong>.csv</strong> with a
-  <strong>Ticker</strong> column and a <strong>Pillar</strong> column. Tickers may
-  include the exchange suffix (<span class="mono">NVDA US</span>) — it is stripped
-  to match. Unknown tickers are pre-registered so their pillar is ready on first appearance.</p>
+  <p class="muted">Auto-detected on upload:
+  a <strong>pillar taxonomy</strong> (<span class="mono">pillar_id, pillar_name, primary_etf…</span>),
+  a <strong>securities seed</strong> (<span class="mono">ticker, pillar_id, pillar_name…</span> —
+  also refreshes names/ISINs), or a simple <strong>Ticker, Pillar</strong> sheet.
+  Excel or CSV; exchange suffixes are stripped to match.</p>
   <form method="post" action="/pillars/upload" enctype="multipart/form-data" class="form" style="margin-top:10px">
     <input type="file" name="file" accept=".xlsx,.xlsm,.csv" required />
     <div class="actions" style="margin-top:10px">
@@ -36,14 +37,23 @@
   </form>
 </div>
 
-{% if pillar_counts %}
+{% if taxonomy %}
 <div class="card">
-  <h2>Coverage</h2>
-  <div class="change-counts" style="margin-top:8px">
-    {% for name, n in pillar_counts %}
-      <span class="ct {{ 'ct-trim' if name.startswith('—') else 'ct-add' }}">{{ name }} · {{ n }}</span>
+  <h2>Framework ({{ taxonomy|length }} pillars)</h2>
+  <table>
+    <thead><tr><th>ID</th><th>Pillar</th><th class="num">Held</th><th>Benchmark ETF</th><th>Note</th></tr></thead>
+    <tbody>
+    {% for p in taxonomy %}
+      <tr>
+        <td class="mono small">{{ p.id }}</td>
+        <td class="sym">{{ p.name }}</td>
+        <td class="num">{% if p.held %}{{ p.held }}{% else %}<span class="muted">0</span>{% endif %}</td>
+        <td>{% if p.primary_etf %}<span class="mono">{{ p.primary_etf }}</span>{% if p.alt_etf %} <span class="muted">/ {{ p.alt_etf }}</span>{% endif %}{% else %}<span class="muted">none</span>{% endif %}</td>
+        <td class="small">{{ p.caveat or "" }}</td>
+      </tr>
     {% endfor %}
-  </div>
+    </tbody>
+  </table>
   {% if unassigned %}<p class="hint">{{ unassigned }} held ticker(s) still unassigned.</p>{% endif %}
 </div>
 {% endif %}

@@ -31,3 +31,6 @@ CurrentPortfolio.pdf
 # Local Claude Code settings
 .claude/settings.local.json
 .preview/
+
+# Seed data (holdings composition — keep out of repo)
+/data/
