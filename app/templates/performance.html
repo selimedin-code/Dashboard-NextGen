@@ -42,13 +42,13 @@
     {% endif %}
 
     <table style="margin-top:14px">
-      <thead><tr><th>Return since {{ v.base_date }}{% if v.has_fund_return %} → {{ v.window_end }}{% endif %}</th><th class="num">Fund</th><th class="num">QQQ</th><th class="num">QQQ/SMH</th><th class="num">SPY</th></tr></thead>
+      <thead><tr><th>Return since {{ v.base_date }}{% if v.has_fund_return %} → {{ v.window_end }}{% endif %}</th><th class="num">Fund</th><th class="num">QQQ</th><th class="num">SPY</th></tr></thead>
       <tbody>
         <tr>
           <td class="muted">Total return</td>
           <td class="num sym {{ 'pos' if v.fund_return and v.fund_return>0 else 'neg' if v.fund_return and v.fund_return<0 else '' }}">
             {{ v.fund_return|pct if v.fund_return is not none else '—' }}</td>
-          {% for k in ['QQQ','BLEND','SPY'] %}
+          {% for k in ['QQQ','SPY'] %}
             {% set r = v.returns.get(k) %}
             <td class="num {{ 'pos' if r and r>0 else 'neg' if r and r<0 else '' }}">{{ r|pct if r is not none else '—' }}</td>
           {% endfor %}
