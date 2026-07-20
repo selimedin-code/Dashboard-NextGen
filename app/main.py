@@ -74,6 +74,13 @@ templates.env.filters["pct_plain"] = _fmt_pct_plain
 templates.env.filters["dec1"] = _fmt_dec1
 templates.env.filters["hhi"] = _fmt_hhi
 
+# Cache-bust the stylesheet by its file mtime so CSS edits always reach the browser.
+try:
+    _css_version = str(int((BASE_DIR / "static" / "app.css").stat().st_mtime))
+except OSError:
+    _css_version = "0"
+templates.env.globals["static_v"] = _css_version
+
 app = FastAPI(title="NextGen Fund Dashboard", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
