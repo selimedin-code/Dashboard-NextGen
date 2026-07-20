@@ -18,8 +18,9 @@ from app.db import get_session
 from app.performance import (
     add_nav_point,
     build_performance,
+    bulk_add_nav_points,
     delete_nav_point,
-    parse_nav_csv,
+    parse_nav_file,
     refresh_benchmarks,
 )
 
@@ -80,10 +81,9 @@ def nav_delete(as_of: str = Form(...), session: Session = Depends(get_session)):
 @router.post("/performance/nav/upload")
 async def nav_upload(file: UploadFile, session: Session = Depends(get_session)):
     data = await file.read()
-    points = parse_nav_csv(data)
-    for d, nav in points:
-        add_nav_point(session, d, nav)
-    return RedirectResponse(url=f"/performance?msg={len(points)} NAV points imported",
+    points = parse_nav_file(file.filename or "upload.csv", data)
+    n = bulk_add_nav_points(session, points)
+    return RedirectResponse(url=f"/performance?msg={n} NAV points imported",
                             status_code=status.HTTP_303_SEE_OTHER)
 
 

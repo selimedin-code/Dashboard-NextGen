@@ -56,6 +56,35 @@ def test_parse_nav_csv():
     assert parse_nav_csv(b"as_of,price\n2026-07-16,\"1,646.90\"\n") == [(date(2026, 7, 16), Decimal("1646.90"))]
 
 
+def test_parse_nav_xlsx_daily_nav_sheet():
+    import io
+    from datetime import datetime as dt
+    from openpyxl import Workbook
+    from app.performance import parse_nav_file
+
+    wb = Workbook()
+    wb.active.title = "Summary"          # active sheet is NOT the NAV one
+    ws = wb.create_sheet("Daily NAV")
+    ws.append(["Date", "NAV (USD)", "Daily Return"])
+    ws.append([dt(2023, 11, 2), 1000.61, None])
+    ws.append([dt(2026, 7, 16), 1646.90, -0.0348])
+    buf = io.BytesIO(); wb.save(buf)
+
+    pts = parse_nav_file("NextGen_NAV.xlsx", buf.getvalue())
+    assert pts == [(date(2023, 11, 2), Decimal("1000.61")), (date(2026, 7, 16), Decimal("1646.90"))]
+
+
+def test_bulk_add_nav_points_upserts(session):
+    from app.performance import bulk_add_nav_points
+    n = bulk_add_nav_points(session, [(date(2023, 11, 2), Decimal("1000.61")),
+                                      (date(2026, 7, 16), Decimal("1646.90"))])
+    assert n == 2 and len(list_nav_points(session)) == 2
+    # re-import with a changed value updates in place, no duplicate
+    bulk_add_nav_points(session, [(date(2026, 7, 16), Decimal("1650"))])
+    assert len(list_nav_points(session)) == 2
+    assert list_nav_points(session)[-1].nav_per_share == Decimal("1650")
+
+
 # ---- benchmark helpers ----
 
 def test_value_at_modes():

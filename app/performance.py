@@ -68,6 +68,12 @@ def list_nav_points(session: Session) -> list[NavPoint]:
     return list(session.execute(select(NavPoint).order_by(NavPoint.as_of)).scalars().all())
 
 
+def parse_nav_file(filename: str, data: bytes) -> list[tuple[date, Decimal]]:
+    if filename.lower().endswith((".xlsx", ".xlsm")):
+        return _parse_nav_xlsx(data)
+    return parse_nav_csv(data)
+
+
 def parse_nav_csv(data: bytes) -> list[tuple[date, Decimal]]:
     import csv
     import io
@@ -77,14 +83,61 @@ def parse_nav_csv(data: bytes) -> list[tuple[date, Decimal]]:
     for row in csv.DictReader(io.StringIO(text)):
         norm = {k.strip().lower(): v for k, v in row.items() if k}
         d = norm.get("date") or norm.get("as_of")
-        nav = norm.get("nav_per_share") or norm.get("nav") or norm.get("price")
+        nav = norm.get("nav_per_share") or norm.get("nav") or norm.get("price") or norm.get("nav (usd)")
         if not d or not nav:
             continue
         try:
-            out.append((date.fromisoformat(d[:10]), Decimal(str(nav).replace(",", "").replace("'", ""))))
+            out.append((date.fromisoformat(str(d)[:10]), Decimal(str(nav).replace(",", "").replace("'", ""))))
         except Exception:
             continue
     return out
+
+
+def _parse_nav_xlsx(data: bytes) -> list[tuple[date, Decimal]]:
+    """Read a daily NAV sheet (Date + a NAV column). Prefers a 'Daily NAV' tab."""
+    import io
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    ws = wb["Daily NAV"] if "Daily NAV" in wb.sheetnames else wb.active
+    date_i = nav_i = None
+    out: list[tuple[date, Decimal]] = []
+    for row in ws.iter_rows(values_only=True):
+        if date_i is None or nav_i is None:
+            for i, c in enumerate(row):
+                s = str(c or "").strip().lower()
+                if s == "date":
+                    date_i = i
+                elif "nav" in s and nav_i is None:
+                    nav_i = i
+            continue
+        d, nav = row[date_i], row[nav_i]
+        if d is None or nav is None:
+            continue
+        try:
+            dd = d.date() if hasattr(d, "date") else date.fromisoformat(str(d)[:10])
+            out.append((dd, Decimal(str(nav).replace(",", "").replace("'", ""))))
+        except Exception:
+            continue
+    wb.close()
+    return out
+
+
+def bulk_add_nav_points(session: Session, points: list[tuple[date, Decimal]]) -> int:
+    """Upsert many NAV points in one transaction."""
+    existing = {p.as_of: p for p in session.execute(select(NavPoint)).scalars().all()}
+    now = datetime.now(timezone.utc)
+    for d, nav in points:
+        row = existing.get(d)
+        if row is None:
+            row = NavPoint(as_of=d)
+            session.add(row)
+            existing[d] = row
+        row.nav_per_share = nav
+        row.uploaded_at = now
+    session.commit()
+    return len(points)
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +157,8 @@ def refresh_benchmarks(session: Session, *, client: FMPClient | None = None) -> 
         for sym in BENCH_SYMBOLS:
             try:
                 hist = client.request("historical-price-eod/light", symbol=sym)
-                _store_history(session, sym, hist or [])
+                # Keep enough history to span the NAV series back to inception.
+                _store_history(session, sym, hist or [], keep=1200)
                 status[sym] = "ok"
             except Exception as exc:  # noqa: BLE001
                 status[sym] = f"error: {exc}"

@@ -152,10 +152,11 @@ def refresh_all_fundamentals(session: Session, tickers: list[str] | None = None)
     return {"ok": ok, "failed": failed, "total": len(tickers), "errors": errors[:10]}
 
 
-def _store_history(session: Session, ticker: str, history: list) -> list[tuple[str, Decimal]]:
-    # FMP returns newest-first; keep the most recent HISTORY_KEEP, store oldest-first.
+def _store_history(session: Session, ticker: str, history: list,
+                   keep: int = HISTORY_KEEP) -> list[tuple[str, Decimal]]:
+    # FMP returns newest-first; keep the most recent `keep`, store oldest-first.
     pts: list[tuple[str, Decimal]] = []
-    for row in history[:HISTORY_KEEP]:
+    for row in history[:keep]:
         c = _dec(row.get("price"))
         d = row.get("date")
         if c is not None and d:

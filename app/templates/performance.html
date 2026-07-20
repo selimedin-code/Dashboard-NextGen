@@ -139,9 +139,11 @@
       </tbody>
     </table>
   {% endif %}
-  <p class="hint">Or bulk import a CSV (columns <span class="mono">date, nav_per_share</span>):
+  <p class="hint">Or bulk import a <span class="mono">.xlsx</span>/<span class="mono">.csv</span>
+    (a <strong>Date</strong> column and a <strong>NAV</strong> column; an <span class="mono">.xlsx</span>
+    with a "Daily NAV" tab works directly):
     <form method="post" action="/performance/nav/upload" enctype="multipart/form-data" style="display:inline">
-      <input type="file" name="file" accept=".csv" style="width:auto;display:inline"><button class="btn" style="padding:4px 10px">Import</button>
+      <input type="file" name="file" accept=".csv,.xlsx,.xlsm" style="width:auto;display:inline"><button class="btn" style="padding:4px 10px">Import</button>
     </form>
   </p>
 </div>
