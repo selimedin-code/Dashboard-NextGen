@@ -167,6 +167,26 @@ def test_nav_kpis():
     assert k["by_month"][0][1] == Decimal("110") / Decimal("100") - 1    # fund Jan +10%
     assert k["by_month"][0][2] == Decimal("525") / Decimal("500") - 1    # QQQ Jan +5%
     assert k["by_quarter"][0][:2] == ("Q1", Decimal("99") / Decimal("100") - 1)
+    # prior full years only (2026 is the current YTD year, excluded); 2025 is the
+    # inception year here so it is measured from the first NAV point.
+    assert k["by_year"] == [("2025", Decimal("0"), Decimal("0"), True)]
+
+
+def test_nav_kpis_annual_full_years():
+    from app.models import NavPoint
+    from app.performance import compute_nav_kpis
+
+    def np(d, nav):
+        return NavPoint(as_of=d, nav_per_share=Decimal(str(nav)))
+
+    navs = [np(date(2023, 11, 2), 1000), np(date(2023, 12, 31), 1100),   # 2023 incep +10%
+            np(date(2024, 12, 31), 1320),                                # 2024 +20%
+            np(date(2025, 6, 30), 1400)]                                 # current year (2025)
+    k = compute_nav_kpis(navs, ref=None)
+    years = {label: (fr, incep) for label, fr, rr, incep in k["by_year"]}
+    assert years["2023"] == (Decimal("1100") / Decimal("1000") - 1, True)     # from inception
+    assert years["2024"] == (Decimal("1320") / Decimal("1100") - 1, False)    # full year +20%
+    assert "2025" not in years                                                 # current year excluded
 
 
 def test_nav_kpis_needs_two_points():

@@ -374,7 +374,7 @@ def compute_nav_kpis(navs: list[NavPoint], ref: list | None = None,
         "ytd": {"fund": fund_ret(by_year.get(Y - 1)), "ref": ref_ret(dyr.get(Y - 1), latest_iso)},
         "qtd": {"fund": fund_ret(by_quarter.get(pq)), "ref": ref_ret(dqtr.get(pq), latest_iso)},
         "mtd": {"fund": fund_ret(by_month.get(pm)), "ref": ref_ret(dmon.get(pm), latest_iso)},
-        "by_month": [], "by_quarter": [],
+        "by_month": [], "by_quarter": [], "by_year": [],
     }
     for m in sorted(mm for (yy, mm) in by_month if yy == Y):
         pmm = prev_month(Y, m)
@@ -391,6 +391,22 @@ def compute_nav_kpis(navs: list[NavPoint], ref: list | None = None,
             f"Q{q}",
             (by_quarter[(Y, q)] / base - 1) if base else None,
             ref_ret(dqtr.get(pqq), dqtr[(Y, q)]),
+        ))
+
+    # Prior full calendar years. The inception year is measured from the first NAV
+    # (the fund did not exist for the whole calendar year).
+    first_nav = Decimal(navs[0].nav_per_share)
+    first_iso = navs[0].as_of.isoformat()
+    for y in sorted(yy for yy in by_year if yy < Y):
+        if (y - 1) in by_year:
+            base, base_iso, incep = by_year[y - 1], dyr[y - 1], False
+        else:
+            base, base_iso, incep = first_nav, first_iso, True
+        kpis["by_year"].append((
+            str(y),
+            (by_year[y] / base - 1) if base else None,
+            ref_ret(base_iso, dyr[y]),
+            incep,
         ))
     return kpis
 

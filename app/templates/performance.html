@@ -97,6 +97,21 @@
     {% endfor %}
   </div>
 
+  {% if v.kpis.by_year %}
+  <div style="margin-top:14px">
+    <h2 style="font-size:12px">Annual returns</h2>
+    <table style="max-width:440px">
+      <thead><tr><th>Year</th><th class="num">Fund</th><th class="num">{{ v.kpis.ref_label }}</th></tr></thead>
+      <tbody>
+      {% for label, fr, rr, incep in v.kpis.by_year %}
+        <tr><td>{{ label }}{% if incep %} <span class="muted small">since incep.</span>{% endif %}</td>
+          <td class="num">{{ fundcell(fr) }}</td><td class="num">{{ refcell(rr) }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
   <div class="split" style="margin-top:14px">
     <div>
       <h2 style="font-size:12px">{{ v.kpis.year }} by month</h2>
