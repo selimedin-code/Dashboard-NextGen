@@ -5,37 +5,37 @@
 {% set f = d.fundamentals %}
 {% set pos = d.position %}
 
-<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
-  <h1 class="page-title" style="margin:0">{{ d.ticker }}</h1>
-  <span class="muted">{{ (f.company_name if f else '') or (d.security.name if d.security else '') }}</span>
-  {% if d.pillar_name %}<span class="chip add">{{ d.pillar_name }}</span>{% endif %}
-  {% if d.crossref_name %}<span class="chip hold" title="secondary pillar">{{ d.crossref_name }}</span>{% endif %}
+{# Sticky identity + price bar — stays pinned (below the nav) while scrolling. #}
+<div class="ticker-bar">
+  <div class="tb-id">
+    <span class="tb-sym">{{ d.ticker }}</span>
+    <span class="muted">{{ (f.company_name if f else '') or (d.security.name if d.security else '') }}</span>
+    {% if d.pillar_name %}<span class="chip add">{{ d.pillar_name }}</span>{% endif %}
+    {% if d.crossref_name %}<span class="chip hold" title="secondary pillar">{{ d.crossref_name }}</span>{% endif %}
+  </div>
+  <div class="tb-right">
+    <span class="tb-price">
+      {% if pos and pos.priced %}
+        <span class="num" style="font-size:20px;font-weight:800">{{ pos.price|money }}</span>
+        <span class="num {{ 'pos' if pos.day_change_pct and pos.day_change_pct>0 else 'neg' if pos.day_change_pct and pos.day_change_pct<0 else '' }}">{{ pos.day_change_pct|pct if pos.day_change_pct is not none else '' }}</span>
+      {% else %}<span class="muted">no live price</span>{% endif %}
+    </span>
+    <span class="muted small">
+      {% if f %}fundamentals {{ f.as_of }}{% if d.fundamentals_age_days is not none and d.fundamentals_age_days > 3 %} <span class="age-warn">({{ d.fundamentals_age_days }}d)</span>{% endif %}
+      {% else %}<span class="age-stale">no fundamentals cached</span>{% endif %}
+    </span>
+    <form method="post" action="/ticker/{{ d.ticker }}/refresh" style="margin:0">
+      <button class="btn btn-primary">{{ 'Refresh' if f else 'Fetch fundamentals' }}</button>
+    </form>
+  </div>
 </div>
-<p class="muted" style="margin:4px 0 14px">
+<p class="muted" style="margin:8px 2px 14px">
   {% if f %}{{ f.sector or '' }}{% if f.industry %} · {{ f.industry }}{% endif %} · {% endif %}
   {% if d.security %}{{ d.security.exchange or '' }} · {{ d.security.isin or '' }}{% endif %}
 </p>
 
 {% if refreshed %}<div class="flash flash-ok">Fundamentals refreshed — {{ refreshed }}.</div>{% endif %}
 {% if saved %}<div class="flash flash-ok">Thesis note saved.</div>{% endif %}
-
-<div class="card" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-  <div>
-    {% if pos and pos.priced %}
-      <span style="font-size:22px;font-weight:800" class="num">{{ pos.price|money }}</span>
-      <span class="num {{ 'pos' if pos.day_change_pct and pos.day_change_pct>0 else 'neg' if pos.day_change_pct and pos.day_change_pct<0 else '' }}">
-        {{ pos.day_change_pct|pct if pos.day_change_pct is not none else '' }}</span>
-    {% else %}<span class="muted">no live price — refresh on Positions</span>{% endif %}
-  </div>
-  <div class="muted" style="margin-left:auto">
-    {% if f %}fundamentals as of {{ f.as_of }}
-      {% if d.fundamentals_age_days is not none and d.fundamentals_age_days > 3 %}<span class="age-warn">({{ d.fundamentals_age_days }}d old)</span>{% endif %}
-    {% else %}<span class="age-stale">no fundamentals cached yet</span>{% endif %}
-  </div>
-  <form method="post" action="/ticker/{{ d.ticker }}/refresh" style="margin:0">
-    <button class="btn btn-primary">{{ 'Refresh' if f else 'Fetch fundamentals' }}</button>
-  </form>
-</div>
 
 <div class="split">
   {# Position context #}

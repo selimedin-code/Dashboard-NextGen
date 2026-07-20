@@ -78,6 +78,16 @@ td.neg,.neg,.sym.neg{color:var(--neg)}
 /* pillar weight bars (exposure) */
 .pbar{position:relative;height:8px;background:var(--div);border-radius:4px;min-width:80px}
 .pbar i{position:absolute;left:0;top:0;height:8px;border-radius:4px;background:var(--accent)}
+
+/* sticky ticker identity + price bar (ticker detail page) — pins under the nav */
+.ticker-bar{position:sticky;top:54px;z-index:40;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.06);
+  padding:11px 16px;margin:0 0 6px}
+.ticker-bar .tb-id{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;min-width:0}
+.ticker-bar .tb-sym{font-size:22px;font-weight:800;letter-spacing:-.01em}
+.ticker-bar .tb-right{margin-left:auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.ticker-bar .tb-price{display:inline-flex;align-items:baseline;gap:8px}
+@media(max-width:720px){.ticker-bar{position:static;top:auto}}
 .sym{font-weight:800;color:var(--ink)}
 .row-cash{color:var(--muted);font-style:italic}
 .card:has(table){overflow-x:auto}
