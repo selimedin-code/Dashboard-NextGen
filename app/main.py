@@ -14,13 +14,13 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func, select, text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.auth import require_auth
 from app.config import get_settings
 from app.db import get_session
-from app.models import HoldingSnapshot, Snapshot
+from app.models import Snapshot
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -141,38 +141,29 @@ def home(
     _user: str = Depends(require_auth),
     session: Session = Depends(get_session),
 ) -> HTMLResponse:
-    """Home page. Reports the latest snapshot and how stale it is.
+    """At-a-glance summary that pulls the headline number from each section.
 
-    'Fail visibly' — a stale or missing snapshot is shown loudly, never rendered
-    as if it were current.
+    'Fail visibly' — a stale/missing snapshot or unfetched prices are shown
+    loudly, never rendered as if current.
     """
+    from app.exposure import build_exposure
+    from app.performance import build_performance
+    from app.positions import build_positions
+    from app.signals import build_signals
+
     latest: Snapshot | None = session.execute(
         select(Snapshot).order_by(Snapshot.as_of.desc()).limit(1)
     ).scalar_one_or_none()
 
-    position_count = 0
-    staleness_days: int | None = None
+    ctx: dict = {"latest": latest, "committed": committed, "now": datetime.now(timezone.utc)}
+
     if latest is not None:
-        position_count = session.execute(
-            select(func.count())
-            .select_from(HoldingSnapshot)
-            .where(HoldingSnapshot.snapshot_id == latest.id)
-        ).scalar_one()
-        staleness_days = (date.today() - latest.as_of).days
+        ctx["staleness_days"] = (date.today() - latest.as_of).days
+        ctx["positions"] = build_positions(session)
+        ctx["exposure"] = build_exposure(session)
+        ctx["perf"] = build_performance(session)
+        sig = build_signals(session)
+        ctx["signals"] = sig
+        ctx["signal_total"] = sig.total if sig else 0
 
-    snapshot_count = session.execute(
-        select(func.count()).select_from(Snapshot)
-    ).scalar_one()
-
-    return templates.TemplateResponse(
-        request,
-        "index.html",
-        {
-            "latest": latest,
-            "position_count": position_count,
-            "staleness_days": staleness_days,
-            "snapshot_count": snapshot_count,
-            "now": datetime.now(timezone.utc),
-            "committed": committed,
-        },
-    )
+    return templates.TemplateResponse(request, "index.html", ctx)
