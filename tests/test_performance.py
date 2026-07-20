@@ -141,6 +141,34 @@ def test_contributions_sum_to_fund_return(session):
     assert by["BBB"] == Decimal("-0.25")
 
 
+def test_nav_kpis():
+    from app.models import NavPoint
+    from app.performance import compute_nav_kpis
+
+    def np(d, nav):
+        return NavPoint(as_of=d, nav_per_share=Decimal(str(nav)))
+
+    navs = [
+        np(date(2025, 12, 31), 100),   # prior year-end / prior quarter-end base
+        np(date(2026, 1, 31), 110),    # Jan +10%
+        np(date(2026, 2, 27), 99),     # Feb -10% ; latest
+    ]
+    k = compute_nav_kpis(navs)
+    assert k["year"] == 2026
+    assert k["ytd"] == Decimal("99") / Decimal("100") - 1        # -1%
+    assert k["mtd"] == Decimal("99") / Decimal("110") - 1        # Feb -10%
+    assert k["qtd"] == Decimal("99") / Decimal("100") - 1        # Q1 vs 2025 year-end
+    assert [lbl for lbl, _ in k["by_month"]] == ["Jan", "Feb"]
+    assert k["by_month"][0][1] == Decimal("110") / Decimal("100") - 1
+    assert k["by_quarter"] == [("Q1", Decimal("99") / Decimal("100") - 1)]
+
+
+def test_nav_kpis_needs_two_points():
+    from app.models import NavPoint
+    from app.performance import compute_nav_kpis
+    assert compute_nav_kpis([NavPoint(as_of=date(2026, 7, 16), nav_per_share=Decimal("1000"))]) == {}
+
+
 def test_pillar_contribution(session):
     commit_snapshot(holdings=[
         _h("AAA", 10, 10, isin="US0000000001"),

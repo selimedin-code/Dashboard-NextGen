@@ -27,10 +27,10 @@
 
     {% if v.chart %}
       <svg viewBox="0 0 {{ v.chart.w }} {{ v.chart.h }}" width="100%" preserveAspectRatio="none" style="max-height:260px">
-        <line x1="0" y1="{{ v.chart.zero_y }}" x2="{{ v.chart.w }}" y2="{{ v.chart.zero_y }}" stroke="#E2E2E6" stroke-width="1" stroke-dasharray="3 3"/>
+        <line x1="0" y1="{{ v.chart.zero_y }}" x2="{{ v.chart.w }}" y2="{{ v.chart.zero_y }}" stroke="#D6D6DB" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>
         {% for ln in v.chart.lines %}
-          <polyline fill="none" stroke="{{ ln.color }}" stroke-width="{{ '2.2' if ln.is_fund else '1.4' }}" points="{{ ln.points }}"/>
-          {% for m in ln.markers %}<circle cx="{{ m[0] }}" cy="{{ m[1] }}" r="3.5" fill="{{ ln.color }}"/>{% endfor %}
+          <polyline fill="none" stroke="{{ ln.color }}" stroke-width="{{ '1.75' if ln.is_fund else '1' }}" vector-effect="non-scaling-stroke" stroke-linejoin="round" points="{{ ln.points }}"/>
+          {% for m in ln.markers %}<circle cx="{{ m[0] }}" cy="{{ m[1] }}" r="3" fill="{{ ln.color }}"/>{% endfor %}
         {% endfor %}
       </svg>
       <div class="change-counts" style="margin-top:6px">
@@ -60,6 +60,47 @@
     {% endif %}
   {% endif %}
 </div>
+
+{# ---- Period KPIs (fund NAV) ---- #}
+{% if v.kpis %}
+{% macro retcell(r) -%}
+  <span class="num sym {{ 'pos' if r and r>0 else 'neg' if r and r<0 else '' }}">{{ r|pct if r is not none else '—' }}</span>
+{%- endmacro %}
+<div class="card">
+  <h2>Performance KPIs <span class="muted" style="font-size:12px;font-weight:400">— fund NAV, {{ v.kpis.year }}</span></h2>
+  <div class="prov" style="margin-top:6px">
+    <div><b>Year to date ({{ v.kpis.year }})</b><span class="v num {{ 'pos' if v.kpis.ytd and v.kpis.ytd>0 else 'neg' if v.kpis.ytd and v.kpis.ytd<0 else '' }}">{{ v.kpis.ytd|pct if v.kpis.ytd is not none else '—' }}</span></div>
+    <div><b>Quarter to date</b><span class="v num {{ 'pos' if v.kpis.qtd and v.kpis.qtd>0 else 'neg' if v.kpis.qtd and v.kpis.qtd<0 else '' }}">{{ v.kpis.qtd|pct if v.kpis.qtd is not none else '—' }}</span></div>
+    <div><b>Month to date</b><span class="v num {{ 'pos' if v.kpis.mtd and v.kpis.mtd>0 else 'neg' if v.kpis.mtd and v.kpis.mtd<0 else '' }}">{{ v.kpis.mtd|pct if v.kpis.mtd is not none else '—' }}</span></div>
+  </div>
+
+  <div class="split" style="margin-top:14px">
+    <div>
+      <h2 style="font-size:12px">{{ v.kpis.year }} by month</h2>
+      <table>
+        <thead><tr><th>Month</th><th class="num">Return</th></tr></thead>
+        <tbody>
+        {% for label, r in v.kpis.by_month %}
+          <tr><td>{{ label }}{% if loop.last %} <span class="muted small">MTD</span>{% endif %}</td><td class="num">{{ retcell(r) }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h2 style="font-size:12px">{{ v.kpis.year }} by quarter</h2>
+      <table>
+        <thead><tr><th>Quarter</th><th class="num">Return</th></tr></thead>
+        <tbody>
+        {% for label, r in v.kpis.by_quarter %}
+          <tr><td>{{ label }}{% if loop.last %} <span class="muted small">QTD</span>{% endif %}</td><td class="num">{{ retcell(r) }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <p class="hint">Each period return is end-of-period NAV ÷ end-of-prior-period NAV − 1. The current month/quarter cells are the month- and quarter-to-date figures.</p>
+</div>
+{% endif %}
 
 {# ---- Position level ---- #}
 {% if v.contributors %}

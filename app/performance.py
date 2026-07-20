@@ -248,6 +248,7 @@ class PerformanceView:
     fund_unrl_return: Decimal | None = None
     total_cost: Decimal | None = None
     benchmarks_cached: bool = False
+    kpis: dict = field(default_factory=dict)
 
 
 def build_performance(session: Session) -> PerformanceView:
@@ -279,6 +280,7 @@ def build_performance(session: Session) -> PerformanceView:
             view.returns[key] = ((v1 / v0) - 1) if (v0 and v1) else None
 
         view.chart = _build_chart(navs, {"QQQ": qqq, "BLEND": blend, "SPY": spy}, base_iso)
+        view.kpis = compute_nav_kpis(navs)
 
     # --- position level (works with the current snapshot alone) ---
     pv = build_positions(session)
@@ -312,6 +314,58 @@ def build_performance(session: Session) -> PerformanceView:
         )
 
     return view
+
+
+def compute_nav_kpis(navs: list[NavPoint]) -> dict:
+    """Period returns from the daily NAV series: YTD, QTD, MTD, plus the current
+    year broken out by month and by quarter. Each period return is
+    end-of-period NAV / end-of-prior-period NAV − 1 (the current period uses the
+    latest NAV, so its by-month/by-quarter cell equals MTD/QTD)."""
+    import calendar
+
+    if len(navs) < 2:
+        return {}
+
+    by_month: dict[tuple[int, int], Decimal] = {}
+    by_quarter: dict[tuple[int, int], Decimal] = {}
+    by_year: dict[int, Decimal] = {}
+    for p in navs:                      # ascending → last write per period wins
+        y, m = p.as_of.year, p.as_of.month
+        q = (m - 1) // 3 + 1
+        nav = Decimal(p.nav_per_share)
+        by_month[(y, m)] = nav
+        by_quarter[(y, q)] = nav
+        by_year[y] = nav
+
+    latest = Decimal(navs[-1].nav_per_share)
+    Y, M = navs[-1].as_of.year, navs[-1].as_of.month
+    Q = (M - 1) // 3 + 1
+
+    def ret(base):
+        return (latest / base - 1) if base else None
+
+    def prev_month(y, m):
+        return (y, m - 1) if m > 1 else (y - 1, 12)
+
+    def prev_quarter(y, q):
+        return (y, q - 1) if q > 1 else (y - 1, 4)
+
+    kpis = {
+        "year": Y,
+        "ytd": ret(by_year.get(Y - 1)),
+        "qtd": ret(by_quarter.get(prev_quarter(Y, Q))),
+        "mtd": ret(by_month.get(prev_month(Y, M))),
+        "by_month": [], "by_quarter": [],
+    }
+    for m in sorted(mm for (yy, mm) in by_month if yy == Y):
+        base = by_month.get(prev_month(Y, m))
+        kpis["by_month"].append(
+            (calendar.month_abbr[m], (by_month[(Y, m)] / base - 1) if base else None))
+    for q in sorted(qq for (yy, qq) in by_quarter if yy == Y):
+        base = by_quarter.get(prev_quarter(Y, q))
+        kpis["by_quarter"].append(
+            (f"Q{q}", (by_quarter[(Y, q)] / base - 1) if base else None))
+    return kpis
 
 
 def _latest_date(*serieses) -> date | None:
@@ -359,6 +413,9 @@ def _build_chart(navs: list[NavPoint], benches: dict, base_iso: str) -> dict:
     lines = []
     colors = {"FUND": FUND_COLOR, **BENCH}
     labels = {"FUND": "Fund NAV", "QQQ": "QQQ", "BLEND": "QQQ/SMH", "SPY": "SPY"}
+    # Only dot the NAV points when the series is SPARSE — a dense daily series is a
+    # line, not hundreds of markers (which read as one fat blob).
+    sparse_nav = len(nav_pts) <= 24
     for key in ("QQQ", "BLEND", "SPY", "FUND"):
         pts = plotted.get(key)
         if not pts:
@@ -366,7 +423,8 @@ def _build_chart(navs: list[NavPoint], benches: dict, base_iso: str) -> dict:
         poly = " ".join(f"{x:.1f},{y_of(r):.1f}" for x, r in pts)
         lines.append({
             "name": labels[key], "color": colors[key], "points": poly,
-            "is_fund": key == "FUND", "markers": [(x, y_of(r)) for x, r in pts] if key == "FUND" else [],
+            "is_fund": key == "FUND",
+            "markers": [(x, y_of(r)) for x, r in pts] if (key == "FUND" and sparse_nav) else [],
         })
     # zero line
     zero_y = y_of(ZERO)
