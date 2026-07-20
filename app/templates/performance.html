@@ -26,14 +26,29 @@
     {% endif %}
 
     {% if v.chart %}
-      <svg viewBox="0 0 {{ v.chart.w }} {{ v.chart.h }}" width="100%" preserveAspectRatio="none" style="max-height:260px">
-        <line x1="0" y1="{{ v.chart.zero_y }}" x2="{{ v.chart.w }}" y2="{{ v.chart.zero_y }}" stroke="#D6D6DB" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>
+      <svg viewBox="0 0 {{ v.chart.w }} {{ v.chart.h }}" width="100%" style="height:auto;display:block">
+        {# y-axis: % gridlines #}
+        {% for g in v.chart.ygrid %}
+          <line x1="{{ v.chart.pad.l }}" x2="{{ v.chart.w - v.chart.pad.r }}" y1="{{ g.y }}" y2="{{ g.y }}"
+                stroke="{{ '#BFC0C8' if g.zero else '#ECECEF' }}" stroke-width="1"
+                stroke-dasharray="{{ '' if g.zero else '2 3' }}" vector-effect="non-scaling-stroke"/>
+          <text x="{{ v.chart.pad.l - 5 }}" y="{{ g.y + 3 }}" text-anchor="end" font-size="9.5" fill="#8C8C8C">{{ g.label }}</text>
+        {% endfor %}
+        {# x-axis: quarter/year gridlines #}
+        {% for g in v.chart.xgrid %}
+          <line x1="{{ g.x }}" x2="{{ g.x }}" y1="{{ v.chart.pad.t }}" y2="{{ v.chart.h - v.chart.pad.b }}"
+                stroke="{{ '#D2D2D8' if g.major else '#F0F0F3' }}" stroke-width="1" vector-effect="non-scaling-stroke"/>
+          <text x="{{ g.x }}" y="{{ v.chart.h - 7 }}" text-anchor="middle" font-size="{{ '10.5' if g.major else '8.5' }}"
+                fill="{{ '#4A4A4A' if g.major else '#A8A8B0' }}" font-weight="{{ '700' if g.major else '400' }}">{{ g.label }}</text>
+        {% endfor %}
+        {# series #}
         {% for ln in v.chart.lines %}
-          <polyline fill="none" stroke="{{ ln.color }}" stroke-width="{{ '1.75' if ln.is_fund else '1' }}" vector-effect="non-scaling-stroke" stroke-linejoin="round" points="{{ ln.points }}"/>
+          <polyline fill="none" stroke="{{ ln.color }}" stroke-width="{{ '1.9' if ln.is_fund else '1.1' }}"
+                    vector-effect="non-scaling-stroke" stroke-linejoin="round" points="{{ ln.points }}"/>
           {% for m in ln.markers %}<circle cx="{{ m[0] }}" cy="{{ m[1] }}" r="3" fill="{{ ln.color }}"/>{% endfor %}
         {% endfor %}
       </svg>
-      <div class="change-counts" style="margin-top:6px">
+      <div class="change-counts" style="margin-top:8px">
         {% for ln in v.chart.lines %}
           <span class="ct" style="border-left:10px solid {{ ln.color }};padding-left:6px">{{ ln.name }}</span>
         {% endfor %}

@@ -35,9 +35,9 @@ BENCH = {"QQQ": "#3167D6", "BLEND": "#B8912F", "SPY": "#8C8C8C"}   # display col
 BENCH_SYMBOLS = ["QQQ", "SMH", "SPY"]
 FUND_COLOR = "#141414"
 
-CHART_W = 720
-CHART_H = 240
-PAD = 8
+CHART_W = 900
+CHART_H = 380
+PAD_L, PAD_R, PAD_T, PAD_B = 42, 10, 12, 24   # room for axis labels
 
 
 # ---------------------------------------------------------------------------
@@ -405,43 +405,69 @@ def _latest_date(*serieses) -> date | None:
 
 
 def _build_chart(navs: list[NavPoint], benches: dict, base_iso: str) -> dict:
-    # Time axis in ordinal days from base to the latest date across all series.
-    base_ord = date.fromisoformat(base_iso).toordinal()
+    import math
+
+    base_date = date.fromisoformat(base_iso)
+    base_ord = base_date.toordinal()
     ends = [date.fromisoformat(s[-1][0]).toordinal() for s in benches.values() if s]
     ends.append(navs[-1].as_of.toordinal())
     max_ord = max(ends)
+    end_date = date.fromordinal(max_ord)
     span_days = max(1, max_ord - base_ord)
 
-    def x_of(iso_or_date) -> float:
-        o = (iso_or_date if isinstance(iso_or_date, int)
-             else (date.fromisoformat(iso_or_date) if isinstance(iso_or_date, str) else iso_or_date).toordinal())
-        return PAD + (CHART_W - 2 * PAD) * ((o - base_ord) / span_days)
+    plot_w = CHART_W - PAD_L - PAD_R
+    plot_h = CHART_H - PAD_T - PAD_B
 
-    # Rebased return series (value/base - 1), collect for y-range.
+    def x_of(o) -> float:
+        if not isinstance(o, int):
+            o = o.toordinal()
+        return PAD_L + plot_w * ((o - base_ord) / span_days)
+
+    # Rebased return series (value/base − 1), collect the y-range first.
     plotted: dict[str, list[tuple[float, Decimal]]] = {}
     for key, series in benches.items():
         v0 = _value_at(series, base_iso, mode="after")
         if not v0:
             continue
-        pts = [(x_of(d), (c / v0) - 1) for d, c in series if d >= base_iso]
+        pts = [(x_of(date.fromisoformat(d)), (c / v0) - 1) for d, c in series if d >= base_iso]
         if pts:
             plotted[key] = pts
     nav0 = Decimal(navs[0].nav_per_share)
-    nav_pts = [(x_of(p.as_of.isoformat()), (Decimal(p.nav_per_share) / nav0) - 1) for p in navs]
+    nav_pts = [(x_of(p.as_of), (Decimal(p.nav_per_share) / nav0) - 1) for p in navs]
     plotted["FUND"] = nav_pts
 
     all_rets = [r for pts in plotted.values() for _, r in pts] or [ZERO]
     lo, hi = min(all_rets), max(all_rets)
-    span = (hi - lo) or Decimal("1")
+    padding = (hi - lo) * Decimal("0.06") or Decimal("0.02")
+    lo_p, hi_p = lo - padding, hi + padding
+    span = (hi_p - lo_p) or Decimal("1")
 
     def y_of(ret: Decimal) -> float:
-        return PAD + (CHART_H - 2 * PAD) * (1 - float((ret - lo) / span))
+        return PAD_T + plot_h * (1 - float((ret - lo_p) / span))
+
+    # Horizontal % gridlines at a readable step.
+    rng = float(hi - lo)
+    step = 0.20 if rng > 0.6 else (0.10 if rng > 0.25 else 0.05)
+    ygrid = []
+    lvl = math.ceil(float(lo_p) / step) * step
+    while lvl <= float(hi_p) + 1e-9:
+        ygrid.append({"y": round(y_of(Decimal(str(round(lvl, 6)))), 1),
+                      "label": f"{lvl * 100:+.0f}%", "zero": abs(lvl) < 1e-9})
+        lvl += step
+
+    # Vertical gridlines at quarter/year boundaries (year = major, labelled).
+    xgrid = []
+    for year in range(base_date.year, end_date.year + 1):
+        for q in range(1, 5):
+            qd = date(year, (q - 1) * 3 + 1, 1)
+            if base_date <= qd <= end_date:
+                xgrid.append({"x": round(x_of(qd), 1),
+                              "label": str(year) if qd.month == 1 else f"Q{q}",
+                              "major": qd.month == 1})
 
     lines = []
     colors = {"FUND": FUND_COLOR, **BENCH}
     labels = {"FUND": "Fund NAV", "QQQ": "QQQ", "BLEND": "QQQ/SMH", "SPY": "SPY"}
-    # Only dot the NAV points when the series is SPARSE — a dense daily series is a
-    # line, not hundreds of markers (which read as one fat blob).
     sparse_nav = len(nav_pts) <= 24
     for key in ("QQQ", "BLEND", "SPY", "FUND"):
         pts = plotted.get(key)
@@ -451,9 +477,9 @@ def _build_chart(navs: list[NavPoint], benches: dict, base_iso: str) -> dict:
         lines.append({
             "name": labels[key], "color": colors[key], "points": poly,
             "is_fund": key == "FUND",
-            "markers": [(x, y_of(r)) for x, r in pts] if (key == "FUND" and sparse_nav) else [],
+            "markers": [(round(x, 1), y_of(r)) for x, r in pts] if (key == "FUND" and sparse_nav) else [],
         })
-    # zero line
-    zero_y = y_of(ZERO)
-    return {"w": CHART_W, "h": CHART_H, "lines": lines, "zero_y": zero_y,
-            "lo": lo, "hi": hi}
+
+    return {"w": CHART_W, "h": CHART_H,
+            "pad": {"l": PAD_L, "r": PAD_R, "t": PAD_T, "b": PAD_B},
+            "lines": lines, "ygrid": ygrid, "xgrid": xgrid, "lo": lo, "hi": hi}
