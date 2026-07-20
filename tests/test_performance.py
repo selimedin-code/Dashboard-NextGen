@@ -153,20 +153,26 @@ def test_nav_kpis():
         np(date(2026, 1, 31), 110),    # Jan +10%
         np(date(2026, 2, 27), 99),     # Feb -10% ; latest
     ]
-    k = compute_nav_kpis(navs)
-    assert k["year"] == 2026
-    assert k["ytd"] == Decimal("99") / Decimal("100") - 1        # -1%
-    assert k["mtd"] == Decimal("99") / Decimal("110") - 1        # Feb -10%
-    assert k["qtd"] == Decimal("99") / Decimal("100") - 1        # Q1 vs 2025 year-end
-    assert [lbl for lbl, _ in k["by_month"]] == ["Jan", "Feb"]
-    assert k["by_month"][0][1] == Decimal("110") / Decimal("100") - 1
-    assert k["by_quarter"] == [("Q1", Decimal("99") / Decimal("100") - 1)]
+    # QQQ reference series across the same window
+    ref = [("2025-12-31", Decimal("500")), ("2026-01-31", Decimal("525")),
+           ("2026-02-27", Decimal("500"))]
+    k = compute_nav_kpis(navs, ref=ref, ref_label="QQQ")
+    assert k["year"] == 2026 and k["ref_label"] == "QQQ"
+    assert k["ytd"]["fund"] == Decimal("99") / Decimal("100") - 1        # -1%
+    assert k["mtd"]["fund"] == Decimal("99") / Decimal("110") - 1        # Feb -10%
+    assert k["qtd"]["fund"] == Decimal("99") / Decimal("100") - 1        # Q1 vs 2025 year-end
+    # QQQ YTD over 2025-12-31 -> 2026-02-27: 500/500 - 1 = 0
+    assert k["ytd"]["ref"] == Decimal("0")
+    assert [lbl for lbl, _, _ in k["by_month"]] == ["Jan", "Feb"]
+    assert k["by_month"][0][1] == Decimal("110") / Decimal("100") - 1    # fund Jan +10%
+    assert k["by_month"][0][2] == Decimal("525") / Decimal("500") - 1    # QQQ Jan +5%
+    assert k["by_quarter"][0][:2] == ("Q1", Decimal("99") / Decimal("100") - 1)
 
 
 def test_nav_kpis_needs_two_points():
     from app.models import NavPoint
     from app.performance import compute_nav_kpis
-    assert compute_nav_kpis([NavPoint(as_of=date(2026, 7, 16), nav_per_share=Decimal("1000"))]) == {}
+    assert compute_nav_kpis([NavPoint(as_of=date(2026, 7, 16), nav_per_share=Decimal("1000"))], ref=[]) == {}
 
 
 def test_pillar_contribution(session):

@@ -279,8 +279,9 @@ def build_performance(session: Session) -> PerformanceView:
             v1 = _value_at(series, end_iso, mode="before")
             view.returns[key] = ((v1 / v0) - 1) if (v0 and v1) else None
 
-        view.chart = _build_chart(navs, {"QQQ": qqq, "BLEND": blend, "SPY": spy}, base_iso)
-        view.kpis = compute_nav_kpis(navs)
+        # Graph: fund vs QQQ and SPY (QQQ/SMH blend intentionally left off the chart).
+        view.chart = _build_chart(navs, {"QQQ": qqq, "SPY": spy}, base_iso)
+        view.kpis = compute_nav_kpis(navs, ref=qqq, ref_label="QQQ")
 
     # --- position level (works with the current snapshot alone) ---
     pv = build_positions(session)
@@ -316,11 +317,16 @@ def build_performance(session: Session) -> PerformanceView:
     return view
 
 
-def compute_nav_kpis(navs: list[NavPoint]) -> dict:
+def compute_nav_kpis(navs: list[NavPoint], ref: list | None = None,
+                     ref_label: str = "QQQ") -> dict:
     """Period returns from the daily NAV series: YTD, QTD, MTD, plus the current
     year broken out by month and by quarter. Each period return is
     end-of-period NAV / end-of-prior-period NAV − 1 (the current period uses the
-    latest NAV, so its by-month/by-quarter cell equals MTD/QTD)."""
+    latest NAV, so its by-month/by-quarter cell equals MTD/QTD).
+
+    `ref` (a benchmark daily series, e.g. QQQ) is compared over the SAME calendar
+    windows — its value on each NAV period-boundary date — so the reference is
+    like-for-like. Each period returns {"fund": r, "ref": r}."""
     import calendar
 
     if len(navs) < 2:
@@ -329,20 +335,32 @@ def compute_nav_kpis(navs: list[NavPoint]) -> dict:
     by_month: dict[tuple[int, int], Decimal] = {}
     by_quarter: dict[tuple[int, int], Decimal] = {}
     by_year: dict[int, Decimal] = {}
+    dmon: dict[tuple[int, int], str] = {}       # period-end DATES (iso) for the ref
+    dqtr: dict[tuple[int, int], str] = {}
+    dyr: dict[int, str] = {}
     for p in navs:                      # ascending → last write per period wins
         y, m = p.as_of.year, p.as_of.month
         q = (m - 1) // 3 + 1
         nav = Decimal(p.nav_per_share)
-        by_month[(y, m)] = nav
-        by_quarter[(y, q)] = nav
-        by_year[y] = nav
+        iso = p.as_of.isoformat()
+        by_month[(y, m)] = nav; dmon[(y, m)] = iso
+        by_quarter[(y, q)] = nav; dqtr[(y, q)] = iso
+        by_year[y] = nav; dyr[y] = iso
 
     latest = Decimal(navs[-1].nav_per_share)
+    latest_iso = navs[-1].as_of.isoformat()
     Y, M = navs[-1].as_of.year, navs[-1].as_of.month
     Q = (M - 1) // 3 + 1
 
-    def ret(base):
+    def fund_ret(base):
         return (latest / base - 1) if base else None
+
+    def ref_ret(start_iso, end_iso):
+        if not ref or not start_iso or not end_iso:
+            return None
+        v0 = _value_at(ref, start_iso, mode="before")
+        v1 = _value_at(ref, end_iso, mode="before")
+        return (v1 / v0 - 1) if (v0 and v1) else None
 
     def prev_month(y, m):
         return (y, m - 1) if m > 1 else (y - 1, 12)
@@ -350,21 +368,30 @@ def compute_nav_kpis(navs: list[NavPoint]) -> dict:
     def prev_quarter(y, q):
         return (y, q - 1) if q > 1 else (y - 1, 4)
 
+    pm, pq = prev_month(Y, M), prev_quarter(Y, Q)
     kpis = {
-        "year": Y,
-        "ytd": ret(by_year.get(Y - 1)),
-        "qtd": ret(by_quarter.get(prev_quarter(Y, Q))),
-        "mtd": ret(by_month.get(prev_month(Y, M))),
+        "year": Y, "ref_label": ref_label,
+        "ytd": {"fund": fund_ret(by_year.get(Y - 1)), "ref": ref_ret(dyr.get(Y - 1), latest_iso)},
+        "qtd": {"fund": fund_ret(by_quarter.get(pq)), "ref": ref_ret(dqtr.get(pq), latest_iso)},
+        "mtd": {"fund": fund_ret(by_month.get(pm)), "ref": ref_ret(dmon.get(pm), latest_iso)},
         "by_month": [], "by_quarter": [],
     }
     for m in sorted(mm for (yy, mm) in by_month if yy == Y):
-        base = by_month.get(prev_month(Y, m))
-        kpis["by_month"].append(
-            (calendar.month_abbr[m], (by_month[(Y, m)] / base - 1) if base else None))
+        pmm = prev_month(Y, m)
+        base = by_month.get(pmm)
+        kpis["by_month"].append((
+            calendar.month_abbr[m],
+            (by_month[(Y, m)] / base - 1) if base else None,
+            ref_ret(dmon.get(pmm), dmon[(Y, m)]),
+        ))
     for q in sorted(qq for (yy, qq) in by_quarter if yy == Y):
-        base = by_quarter.get(prev_quarter(Y, q))
-        kpis["by_quarter"].append(
-            (f"Q{q}", (by_quarter[(Y, q)] / base - 1) if base else None))
+        pqq = prev_quarter(Y, q)
+        base = by_quarter.get(pqq)
+        kpis["by_quarter"].append((
+            f"Q{q}",
+            (by_quarter[(Y, q)] / base - 1) if base else None,
+            ref_ret(dqtr.get(pqq), dqtr[(Y, q)]),
+        ))
     return kpis
 
 
