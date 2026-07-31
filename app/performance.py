@@ -25,8 +25,10 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.fundamentals import _store_history
-from app.models import NavPoint, PriceHistoryCache
+from app.ingest.normalize import CASH_TICKER
+from app.models import HoldingSnapshot, NavPoint, PriceHistoryCache, Snapshot
 from app.positions import build_positions
+from app.prices import load_quote_cache
 from app.providers.fmp import FMPClient
 
 ZERO = Decimal("0")
@@ -249,6 +251,7 @@ class PerformanceView:
     total_cost: Decimal | None = None
     benchmarks_cached: bool = False
     kpis: dict = field(default_factory=dict)
+    estimate: "LiveEstimate | None" = None
 
 
 def build_performance(session: Session) -> PerformanceView:
@@ -282,6 +285,7 @@ def build_performance(session: Session) -> PerformanceView:
         # Graph: fund vs QQQ and SPY (QQQ/SMH blend intentionally left off the chart).
         view.chart = _build_chart(navs, {"QQQ": qqq, "SPY": spy}, base_iso)
         view.kpis = compute_nav_kpis(navs, ref=qqq, ref_label="QQQ")
+        view.estimate = estimate_live_nav(session)
 
     # --- position level (works with the current snapshot alone) ---
     pv = build_positions(session)
@@ -409,6 +413,92 @@ def compute_nav_kpis(navs: list[NavPoint], ref: list | None = None,
             incep,
         ))
     return kpis
+
+
+@dataclass
+class LiveEstimate:
+    """A mark-to-market estimate of the fund price between official statements."""
+    est_price: Decimal
+    est_return: Decimal            # book return since the last official price
+    est_ytd: Decimal | None
+    est_since_incep: Decimal | None
+    official_price: Decimal
+    official_date: date
+    priced: int
+    total: int
+
+
+def estimate_live_nav(session: Session) -> LiveEstimate | None:
+    """Estimate today's fund price by marking the last official price to the book's
+    live return: est = official × (live book value / book value on the official date).
+
+    The holdings basket is fixed (the latest snapshot), so the ratio is purely the
+    price return of that basket and needs no shares-outstanding figure. It is an
+    ESTIMATE — it assumes holdings unchanged since the last statement and ignores
+    fees and any fund-level cash flows."""
+    navs = list_nav_points(session)
+    if not navs:
+        return None
+    official = navs[-1]
+    d_iso = official.as_of.isoformat()
+    official_price = Decimal(official.nav_per_share)
+
+    latest_snap = session.execute(
+        select(Snapshot).order_by(Snapshot.as_of.desc()).limit(1)
+    ).scalar_one_or_none()
+    if latest_snap is None:
+        return None
+    holdings = session.execute(
+        select(HoldingSnapshot).where(HoldingSnapshot.snapshot_id == latest_snap.id)
+    ).scalars().all()
+
+    quotes = load_quote_cache(session)
+    hist = {r.ticker: r for r in session.execute(select(PriceHistoryCache)).scalars().all()}
+
+    mv_now = mv_then = ZERO
+    cash = ZERO
+    priced = total = 0
+    for h in holdings:
+        if h.ticker == CASH_TICKER:
+            cash = h.units
+            continue
+        total += 1
+        q = quotes.get(h.ticker)
+        ph = hist.get(h.ticker)
+        if q is None or not q.ok or q.price is None or ph is None:
+            continue
+        close_then = _value_at([(d, Decimal(c)) for d, c in ph.series], d_iso, mode="before")
+        if close_then is None or close_then == 0:
+            continue
+        # Same units on both sides → pure basket price return.
+        mv_now += h.units * Decimal(q.price)
+        mv_then += h.units * close_then
+        priced += 1
+
+    mv_now += cash
+    mv_then += cash
+    if mv_then == 0 or priced == 0:
+        return None
+
+    ratio = mv_now / mv_then
+    est_price = official_price * ratio
+
+    Y = official.as_of.year if not quotes else max(
+        (q.fetched_at.year for q in quotes.values()), default=official.as_of.year)
+    prior = [Decimal(p.nav_per_share) for p in navs if p.as_of.year == Y - 1]
+    base_ytd = prior[-1] if prior else Decimal(navs[0].nav_per_share)
+    first_nav = Decimal(navs[0].nav_per_share)
+
+    return LiveEstimate(
+        est_price=est_price,
+        est_return=ratio - 1,
+        est_ytd=(est_price / base_ytd - 1) if base_ytd else None,
+        est_since_incep=(est_price / first_nav - 1) if first_nav else None,
+        official_price=official_price,
+        official_date=official.as_of,
+        priced=priced,
+        total=total,
+    )
 
 
 def _latest_date(*serieses) -> date | None:
