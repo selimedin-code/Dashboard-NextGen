@@ -7,6 +7,9 @@
 {% if committed %}
   <div class="flash flash-ok">Snapshot for <strong>{{ committed }}</strong> committed successfully.</div>
 {% endif %}
+{% if refreshed %}
+  <div class="flash flash-ok">Refreshed — {{ refreshed }}. Fund NAV and fundamentals refresh from their own pages.</div>
+{% endif %}
 
 {% if latest is none %}
   <div class="card">
@@ -21,15 +24,20 @@
   {% if staleness_days is not none and staleness_days > 7 %}{% set ac, al = 'age-stale', 'stale — ' ~ staleness_days ~ 'd old' %}
   {% elif staleness_days is not none and staleness_days > 3 %}{% set ac, al = 'age-warn', staleness_days ~ 'd old' %}
   {% else %}{% set ac, al = 'age-fresh', ('current' if staleness_days == 0 else staleness_days ~ 'd old') %}{% endif %}
-  <p class="muted" style="margin:-4px 0 12px">
-    Snapshot <strong>{{ latest.as_of }}</strong> <span class="{{ ac }}">({{ al }})</span> ·
-    {% if positions and positions.cache_age_seconds is not none %}
-      prices {% if positions.cache_age_seconds < 900 %}<span class="age-fresh">{{ (positions.cache_age_seconds/60)|round|int }} min ago</span>
-      {% elif positions.cache_age_seconds < 86400 %}<span class="age-warn">{{ (positions.cache_age_seconds/3600)|round(1) }} h ago</span>
-      {% else %}<span class="age-stale">{{ (positions.cache_age_seconds/86400)|round|int }} d ago</span>{% endif %}
-    {% else %}<span class="age-stale">prices never fetched — <a href="/positions">refresh</a></span>{% endif %}
-    {% if h and h.unpriced_count %} · <span class="age-stale">{{ h.unpriced_count }} unpriced</span>{% endif %}
-  </p>
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:-4px 0 12px">
+    <p class="muted" style="margin:0">
+      Snapshot <strong>{{ latest.as_of }}</strong> <span class="{{ ac }}">({{ al }})</span> ·
+      {% if positions and positions.cache_age_seconds is not none %}
+        prices {% if positions.cache_age_seconds < 900 %}<span class="age-fresh">{{ (positions.cache_age_seconds/60)|round|int }} min ago</span>
+        {% elif positions.cache_age_seconds < 86400 %}<span class="age-warn">{{ (positions.cache_age_seconds/3600)|round(1) }} h ago</span>
+        {% else %}<span class="age-stale">{{ (positions.cache_age_seconds/86400)|round|int }} d ago</span>{% endif %}
+      {% else %}<span class="age-stale">prices never fetched</span>{% endif %}
+      {% if h and h.unpriced_count %} · <span class="age-stale">{{ h.unpriced_count }} unpriced</span>{% endif %}
+    </p>
+    <form method="post" action="/refresh" style="margin:0 0 0 auto">
+      <button class="btn btn-primary" style="padding:6px 14px">Refresh prices</button>
+    </form>
+  </div>
 
   {# Headline money strip #}
   <div class="prov">
@@ -44,7 +52,7 @@
   {# Section summary tiles — each links to its page #}
   <div class="grid" style="margin-top:6px">
     <a class="tile flag" href="/performance">
-      <div class="t">Performance · fund NAV</div>
+      <div class="t">Performance · fund NAV{% if perf and perf.nav_points %} <span class="muted">as of {{ perf.nav_points[-1].as_of }}</span>{% endif %}</div>
       {% if perf and perf.kpis %}
         <div class="v num {{ 'pos' if perf.kpis.ytd.fund and perf.kpis.ytd.fund>0 else 'neg' if perf.kpis.ytd.fund and perf.kpis.ytd.fund<0 else '' }}">{{ perf.kpis.ytd.fund|pct if perf.kpis.ytd.fund is not none else '—' }} <span class="muted" style="font-size:12px">YTD</span></div>
         <div class="t num">QQQ {{ perf.kpis.ytd.ref|pct if perf.kpis.ytd.ref is not none else '—' }}{% if perf.fund_return is not none %} · {{ perf.fund_return|pct }} since incep{% endif %}</div>

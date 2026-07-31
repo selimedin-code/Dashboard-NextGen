@@ -11,7 +11,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, text
@@ -138,6 +138,7 @@ def healthz() -> JSONResponse:
 def home(
     request: Request,
     committed: str | None = None,
+    refreshed: str | None = None,
     _user: str = Depends(require_auth),
     session: Session = Depends(get_session),
 ) -> HTMLResponse:
@@ -155,7 +156,8 @@ def home(
         select(Snapshot).order_by(Snapshot.as_of.desc()).limit(1)
     ).scalar_one_or_none()
 
-    ctx: dict = {"latest": latest, "committed": committed, "now": datetime.now(timezone.utc)}
+    ctx: dict = {"latest": latest, "committed": committed, "refreshed": refreshed,
+                 "now": datetime.now(timezone.utc)}
 
     if latest is not None:
         ctx["staleness_days"] = (date.today() - latest.as_of).days
@@ -167,3 +169,28 @@ def home(
         ctx["signal_total"] = sig.total if sig else 0
 
     return templates.TemplateResponse(request, "index.html", ctx)
+
+
+@app.post("/refresh")
+def refresh_all(
+    _user: str = Depends(require_auth),
+    session: Session = Depends(get_session),
+):
+    """Refresh everything the Overview shows that IS price-driven, in one place:
+    live quotes AND the benchmark history. Fundamentals and the NAV series have
+    their own (slower / upload) cadence and are refreshed from their own pages."""
+    from app.prices import refresh_quotes
+    from app.performance import refresh_benchmarks
+
+    msg = ""
+    try:
+        q = refresh_quotes(session)
+        msg = f"{q['ok']} priced"
+        try:
+            refresh_benchmarks(session)
+            msg += ", benchmarks updated"
+        except Exception as exc:  # noqa: BLE001 — prices already saved; benchmarks best-effort
+            msg += f" (benchmarks failed: {exc})"
+    except Exception as exc:  # noqa: BLE001
+        msg = f"error: {exc}"
+    return RedirectResponse(url=f"/?refreshed={msg}", status_code=303)
