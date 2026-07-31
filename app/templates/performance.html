@@ -195,20 +195,23 @@
 </div>
 {% endif %}
 
-{# ---- NAV series management ---- #}
+{# ---- Fund price (NAV) series management ---- #}
 <div class="card">
-  <h2>NAV series</h2>
+  <h2>Fund price series <span class="muted" style="font-size:12px;font-weight:400">— the daily fund price / NAV per share; this is what drives all performance above</span></h2>
+  <p class="muted" style="margin:-2px 0 10px">Add your fund's price for a date (from your custodian statement).
+  For your AMC the quoted price <em>is</em> the NAV per share, so each price you add becomes the newest
+  performance point — YTD and the curve update to it automatically.</p>
   <form method="post" action="/performance/nav" class="form" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
     <div><label>Date</label><input type="date" name="as_of" required style="width:auto"></div>
-    <div><label>NAV per share</label><input type="text" name="nav_per_share" placeholder="1646.90" required style="width:130px"></div>
+    <div><label>Fund price (NAV/share)</label><input type="text" name="nav_per_share" placeholder="1646.90" required style="width:150px"></div>
     <div><label>Total NAV <span class="muted">(opt)</span></label><input type="text" name="total_nav" style="width:130px"></div>
     <div><label>Units <span class="muted">(opt)</span></label><input type="text" name="shares" style="width:110px"></div>
-    <button class="btn btn-primary">Add point</button>
+    <button class="btn btn-primary">Add price</button>
   </form>
 
   {% if v.nav_points %}
     <table style="margin-top:14px">
-      <thead><tr><th>Date</th><th class="num">NAV / share</th><th class="num">Total NAV</th><th class="num">Units</th><th></th></tr></thead>
+      <thead><tr><th>Date</th><th class="num">Fund price</th><th class="num">Total NAV</th><th class="num">Units</th><th></th></tr></thead>
       <tbody>
       {% for p in v.nav_points %}
         <tr><td>{{ p.as_of }}</td>
@@ -221,8 +224,8 @@
     </table>
   {% endif %}
   <p class="hint">Or bulk import a <span class="mono">.xlsx</span>/<span class="mono">.csv</span>
-    (a <strong>Date</strong> column and a <strong>NAV</strong> column; an <span class="mono">.xlsx</span>
-    with a "Daily NAV" tab works directly):
+    (a <strong>Date</strong> column and a <strong>price / NAV</strong> column; an <span class="mono">.xlsx</span>
+    with a "Daily NAV" tab works directly). Re-importing is safe — it upserts by date:
     <form method="post" action="/performance/nav/upload" enctype="multipart/form-data" style="display:inline">
       <input type="file" name="file" accept=".csv,.xlsx,.xlsm" style="width:auto;display:inline"><button class="btn" style="padding:4px 10px">Import</button>
     </form>
