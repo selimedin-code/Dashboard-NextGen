@@ -189,57 +189,7 @@ def test_nav_kpis_annual_full_years():
     assert "2025" not in years                                                 # current year excluded
 
 
-def test_live_estimate(session):
-    from datetime import datetime, timezone
-    from app.models import PriceHistoryCache
-    from app.performance import add_nav_point, estimate_live_nav
 
-    # Book: 10 AAA + $100 cash. Official price 1000 on 2026-07-10.
-    commit_snapshot(holdings=[
-        _h("AAA", 10, 10, isin="US0000000001"),
-        _h("USD Cash", 100, 1, cash=True),
-    ], as_of=date(2026, 7, 1), filename="f", notes=None, pillar_assignments=None, session=session)
-    add_nav_point(session, date(2026, 7, 10), Decimal("1000"))
-    # AAA closed at 20 on the statement date; live it is 22 (+10% on the stock).
-    session.add(PriceHistoryCache(ticker="AAA", series=[["2026-07-10", "20"]],
-                                  fetched_at=datetime.now(timezone.utc)))
-    _seed_quote(session, "AAA", 22)
-    session.commit()
-
-    e = estimate_live_nav(session)
-    # book then = 10*20 + 100 = 300 ; now = 10*22 + 100 = 320 ; ratio 320/300
-    # est price = 1000 * 320/300 = 1066.67
-    assert round(e.est_price, 2) == Decimal("1066.67")
-    assert e.priced == 1 and e.total == 1
-    assert e.official_price == Decimal("1000") and e.official_date == date(2026, 7, 10)
-
-
-def test_live_estimate_none_without_nav(session):
-    from app.performance import estimate_live_nav
-    commit_snapshot(holdings=[_h("AAA", 10, 10, isin="US0000000001")],
-                    as_of=date(2026, 7, 1), filename="f", notes=None,
-                    pillar_assignments=None, session=session)
-    assert estimate_live_nav(session) is None
-
-
-def test_live_estimate_suppressed_when_price_history_behind_statement(session):
-    """If the last official price is NEWER than the cached stock history, marking
-    from an earlier close would double-count — the estimate must be suppressed."""
-    from datetime import datetime, timezone
-    from app.models import PriceHistoryCache
-    from app.performance import add_nav_point, estimate_live_nav
-
-    commit_snapshot(holdings=[
-        _h("AAA", 10, 10, isin="US0000000001"),
-        _h("USD Cash", 100, 1, cash=True),
-    ], as_of=date(2026, 7, 1), filename="f", notes=None, pillar_assignments=None, session=session)
-    # stock history only reaches 2026-07-10, but the official price is 2026-07-20
-    session.add(PriceHistoryCache(ticker="AAA", series=[["2026-07-10", "20"]],
-                                  fetched_at=datetime.now(timezone.utc)))
-    _seed_quote(session, "AAA", 22)
-    add_nav_point(session, date(2026, 7, 20), Decimal("1000"))
-    session.commit()
-    assert estimate_live_nav(session) is None
 
 
 def test_nav_kpis_needs_two_points():

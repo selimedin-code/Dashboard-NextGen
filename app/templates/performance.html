@@ -73,20 +73,6 @@
     {% if not v.has_fund_return %}
       <p class="hint">Only one NAV point so far — fund return needs a second date. Benchmarks are shown since {{ v.base_date }} for context.</p>
     {% endif %}
-
-    {% if v.estimate %}
-    {% set e = v.estimate %}
-    <div style="margin-top:14px;background:var(--accent-bg);border:1px solid #cdddf7;border-radius:10px;padding:12px 15px">
-      <b style="color:var(--accent);font-size:11px;letter-spacing:.05em;text-transform:uppercase">Estimated live &mdash; marks the book to today's prices</b>
-      <div style="margin-top:5px;font-size:14px">
-        Est. price <strong class="num">{{ e.est_price|money }}</strong>
-        (<span class="num {{ 'pos' if e.est_return>0 else 'neg' if e.est_return<0 else '' }}">{{ e.est_return|pct }}</span> since the {{ e.official_date }} statement)
-        &middot; est. YTD <strong class="num {{ 'pos' if e.est_ytd and e.est_ytd>0 else 'neg' if e.est_ytd and e.est_ytd<0 else '' }}">{{ e.est_ytd|pct if e.est_ytd is not none else '—' }}</strong>
-        &middot; est. since incep <span class="num">{{ e.est_since_incep|pct if e.est_since_incep is not none else '—' }}</span>
-      </div>
-      <div class="hint" style="margin-top:5px">Official price {{ e.official_price|money }} on {{ e.official_date }}. Marks {{ e.priced }}/{{ e.total }} holdings to live prices; updates with the price refresh. An estimate — assumes holdings unchanged since the statement, excludes fees and fund-level flows.</div>
-    </div>
-    {% endif %}
   {% endif %}
 </div>
 

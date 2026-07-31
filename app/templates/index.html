@@ -56,7 +56,6 @@
       {% if perf and perf.kpis %}
         <div class="v num {{ 'pos' if perf.kpis.ytd.fund and perf.kpis.ytd.fund>0 else 'neg' if perf.kpis.ytd.fund and perf.kpis.ytd.fund<0 else '' }}">{{ perf.kpis.ytd.fund|pct if perf.kpis.ytd.fund is not none else '—' }} <span class="muted" style="font-size:12px">YTD</span></div>
         <div class="t num">QQQ {{ perf.kpis.ytd.ref|pct if perf.kpis.ytd.ref is not none else '—' }}{% if perf.fund_return is not none %} · {{ perf.fund_return|pct }} since incep{% endif %}</div>
-        {% if perf.estimate %}<div class="t num">est. <span class="{{ 'pos' if perf.estimate.est_ytd and perf.estimate.est_ytd>0 else 'neg' if perf.estimate.est_ytd and perf.estimate.est_ytd<0 else '' }}">{{ perf.estimate.est_ytd|pct if perf.estimate.est_ytd is not none else '—' }}</span> YTD live</div>{% endif %}
       {% else %}
         <div class="v">—</div><div class="t">add a 2nd NAV point</div>
       {% endif %}
