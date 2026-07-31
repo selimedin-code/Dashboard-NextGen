@@ -455,6 +455,15 @@ def estimate_live_nav(session: Session) -> LiveEstimate | None:
     quotes = load_quote_cache(session)
     hist = {r.ticker: r for r in session.execute(select(PriceHistoryCache)).scalars().all()}
 
+    # The estimate marks FROM the official date's closes. If the cached stock
+    # history does not reach the official date, marking from an earlier close
+    # would re-apply a move the official price already includes (a double-count),
+    # so we cannot produce a trustworthy estimate.
+    hist_last = max((date.fromisoformat(r.series[-1][0]) for r in hist.values() if r.series),
+                    default=None)
+    if hist_last is None or hist_last < official.as_of:
+        return None
+
     mv_now = mv_then = ZERO
     cash = ZERO
     priced = total = 0
