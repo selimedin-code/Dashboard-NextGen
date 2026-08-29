@@ -12,9 +12,11 @@ import os
 import pytest
 
 # Point the app at the test database BEFORE importing anything that reads settings.
-os.environ.setdefault(
-    "DATABASE_URL", "postgresql+psycopg://localhost:5432/nextgen_test"
-)
+# Force it unless the environment already names a *_test database: the schema
+# fixture drop_all()s whatever this points at, and a sourced .env once sent that
+# at the dev database and wiped it.
+if not os.environ.get("DATABASE_URL", "").rstrip("/").endswith("_test"):
+    os.environ["DATABASE_URL"] = "postgresql+psycopg://localhost:5432/nextgen_test"
 
 from sqlalchemy import text  # noqa: E402
 

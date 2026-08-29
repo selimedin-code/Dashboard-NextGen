@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -38,20 +38,52 @@ class Marker:
     y: float
     kind: str          # OPEN | ADD | TRIM | CLOSE
     label: str
+    price: Decimal | None = None
+
+
+@dataclass
+class Gridline:
+    """One horizontal price level. `frac` is y/CHART_H so the template can
+    position the HTML label overlay (SVG text would distort — the chart is
+    stretched with preserveAspectRatio="none")."""
+    y: float
+    frac: float
+    level: Decimal
 
 
 @dataclass
 class Chart:
     points: str = ""
     markers: list[Marker] = field(default_factory=list)
+    gridlines: list[Gridline] = field(default_factory=list)
     lo: Decimal | None = None
     hi: Decimal | None = None
     first_date: str | None = None
     last_date: str | None = None
     last_x: float | None = None
     last_y: float | None = None
+    last_close: Decimal | None = None
+    last_frac: float | None = None
     w: int = CHART_W
     h: int = CHART_H
+
+
+def _grid_levels(lo: Decimal, hi: Decimal, target: int = 4) -> list[Decimal]:
+    """Round price levels inside [lo, hi]: a 1/2/2.5/5 step sized for ~`target`
+    lines, so labels read as 30, 35, 40 rather than 31.07, 36.44."""
+    span = hi - lo
+    if span <= 0:
+        return []
+    raw = span / target
+    mag = Decimal(10) ** raw.adjusted()
+    step = next(m * mag for m in (Decimal(1), Decimal(2), Decimal("2.5"),
+                                  Decimal(5), Decimal(10)) if m * mag >= raw)
+    level = (lo / step).to_integral_value(rounding=ROUND_CEILING) * step
+    levels = []
+    while level <= hi:
+        levels.append(level)
+        level += step
+    return levels
 
 
 @dataclass
@@ -166,12 +198,17 @@ def _build_chart(session: Session, ticker: str, changes: list[dict]) -> Chart | 
             i = earlier[-1] if earlier else None
         if i is not None:
             markers.append(Marker(x=x_at(i), y=y_at(series[i][1]),
-                                  kind=ch["change"].change_type, label=d))
+                                  kind=ch["change"].change_type, label=d,
+                                  price=series[i][1]))
 
+    gridlines = [Gridline(y=y_at(lv), frac=y_at(lv) / CHART_H, level=lv)
+                 for lv in _grid_levels(lo, hi)]
+    last_y = y_at(series[-1][1])
     return Chart(
-        points=" ".join(pts), markers=markers, lo=lo, hi=hi,
+        points=" ".join(pts), markers=markers, gridlines=gridlines, lo=lo, hi=hi,
         first_date=series[0][0], last_date=series[-1][0],
-        last_x=x_at(n - 1), last_y=y_at(series[-1][1]),
+        last_x=x_at(n - 1), last_y=last_y,
+        last_close=series[-1][1], last_frac=last_y / CHART_H,
     )
 
 

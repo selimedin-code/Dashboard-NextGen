@@ -83,14 +83,26 @@
 {% if d.chart %}
 <div class="card">
   <h2>Price &amp; this position's moves</h2>
-  <svg viewBox="0 0 {{ d.chart.w }} {{ d.chart.h }}" width="100%" preserveAspectRatio="none" style="max-height:220px">
+  <div style="position:relative">
+  <svg viewBox="0 0 {{ d.chart.w }} {{ d.chart.h }}" width="100%" preserveAspectRatio="none" style="max-height:220px;display:block">
+    {% for g in d.chart.gridlines %}
+      <line x1="0" y1="{{ g.y }}" x2="{{ d.chart.w }}" y2="{{ g.y }}" stroke="var(--line)" stroke-dasharray="3,5" vector-effect="non-scaling-stroke"/>
+    {% endfor %}
     <polyline fill="none" stroke="#3167D6" stroke-width="1.5" points="{{ d.chart.points }}"/>
     {% for m in d.chart.markers %}
       {% set col = {'OPEN':'#1F8A5B','ADD':'#3167D6','TRIM':'#B8912F','CLOSE':'#D6493A'}[m.kind] %}
-      <circle cx="{{ m.x }}" cy="{{ m.y }}" r="4" fill="{{ col }}" stroke="#fff" stroke-width="1.5"><title>{{ m.kind }} {{ m.label }}</title></circle>
+      <circle cx="{{ m.x }}" cy="{{ m.y }}" r="4" fill="{{ col }}" stroke="#fff" stroke-width="1.5"><title>{{ m.kind }} {{ m.label }}{% if m.price is not none %} · {{ m.price|money }}{% endif %}</title></circle>
     {% endfor %}
     <circle cx="{{ d.chart.last_x }}" cy="{{ d.chart.last_y }}" r="3" fill="#141414"/>
   </svg>
+  {# Price labels overlay the SVG as HTML: the chart stretches (preserveAspectRatio=none), SVG text would distort with it. #}
+  {% for g in d.chart.gridlines %}
+    <span style="position:absolute;left:2px;top:{{ '%.1f'|format(g.frac*100) }}%;transform:translateY(-50%);font-size:10px;line-height:1;color:var(--dim);background:var(--card);padding:1px 3px">{{ g.level|money }}</span>
+  {% endfor %}
+  {% if d.chart.last_close is not none %}
+    <span style="position:absolute;right:2px;top:{{ '%.1f'|format(d.chart.last_frac*100) }}%;transform:translateY(-50%);font-size:10px;line-height:1.2;font-weight:600;color:var(--card);background:var(--ink);border-radius:3px;padding:2px 5px">{{ d.chart.last_close|money }}</span>
+  {% endif %}
+  </div>
   <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--dim)">
     <span>{{ d.chart.first_date }} · low {{ d.chart.lo|money }}</span>
     <span>high {{ d.chart.hi|money }} · {{ d.chart.last_date }}</span>
