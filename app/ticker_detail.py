@@ -176,7 +176,15 @@ def _build_chart(session: Session, ticker: str, changes: list[dict]) -> Chart | 
 
 
 def _derived(detail: TickerDetail, position) -> dict:
-    d: dict = {}
+    # Every key the template reads must exist even when the input is missing:
+    # `d.derived.x is not none` passes for Undefined and then crashes on compare.
+    d: dict = {
+        "implied_upside": None,
+        "range52_pos": None,
+        "dist_dma50": None,
+        "dist_dma200": None,
+        "total_grades": 0,
+    }
     f = detail.fundamentals
     price = getattr(position, "price", None) if position else None
     if f is None:
