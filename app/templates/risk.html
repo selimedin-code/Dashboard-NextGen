@@ -33,6 +33,10 @@
       <b>{{ r.scenario_name }}</b>
       <span class="v num">&minus;{{ r.scenario_loss_pct_aum|pct_plain }} AUM</span>
     </div>
+    <div class="{{ 'age-stale' if wires and wires.triggered else ('age-warn' if wires and (wires.watch or wires.due) else '') }}">
+      <b>Tripwires</b>
+      <span class="v num">{% if wires %}{{ wires.triggered }} trig · {{ wires.watch }} watch · {{ wires.due }} due{% else %}—{% endif %}</span>
+    </div>
     <div>
       <b>Cash cushion</b>
       <span class="v num">{{ view.cash_pct|pct_plain }}</span>
@@ -104,6 +108,70 @@
       </tbody>
     </table>
     <p class="hint">{{ r.scenario_note }}</p>
+  </div>
+
+  {# Tripwires #}
+  <div class="card" id="tripwires">
+    <h2>Tripwires — written exit rules</h2>
+    {% if saved == '1' %}<div class="flash">Reading saved.</div>{% elif saved == 'err' %}<div class="flash flash-warn">Could not save — unknown rule or bad status.</div>{% endif %}
+    {% if wires is none or not wires.rows %}
+      <p class="muted">No tripwires defined — run the latest migration to seed the rule set.</p>
+    {% else %}
+    <table>
+      <thead>
+        <tr><th>Position</th><th>Rule → action</th><th>Mode</th><th>Latest reading</th><th>Status</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for w in wires.rows %}
+        <tr>
+          <td class="mono sym">{% if w.ticker %}<a href="/ticker/{{ w.ticker }}">{{ w.ticker }}</a>{% else %}PORTFOLIO{% endif %}</td>
+          <td>{{ w.rule }}<br><span class="small muted">→ {{ w.action }}</span></td>
+          <td class="small muted">{{ w.mode }}</td>
+          <td class="small">
+            {% if w.mode == 'auto' %}
+              {% if w.computed_value %}<span class="mono">{{ w.computed_value }}</span>{% else %}<span class="muted">n/a</span>{% endif %}
+              {% if w.computed_detail %}<br><span class="muted">{{ w.computed_detail }}</span>{% endif %}
+            {% else %}
+              {{ w.latest_value or '—' }}
+              {% if w.note %}<br><span class="muted">{{ w.note }}</span>{% endif %}
+            {% endif %}
+            <br><span class="muted">updated {{ w.updated_at.date() }}</span>
+          </td>
+          <td>
+            {% set st = w.effective_status %}
+            {% if st == 'triggered' %}<span class="chip close">TRIGGERED</span>
+            {% elif st == 'watch' %}<span class="chip trim">watch</span>
+            {% else %}<span class="chip">ok</span>{% endif %}
+            {% if w.data_due %}<br><span class="chip trim" title="A report landed or looms since this reading — re-enter it.">data due</span>{% endif %}
+          </td>
+          <td class="small">
+            {% if w.mode != 'auto' %}
+            <details>
+              <summary class="muted" style="cursor:pointer">edit</summary>
+              <form method="post" action="/risk/tripwire/{{ w.id }}" style="margin-top:6px; display:grid; gap:4px; min-width:180px">
+                <select name="status">
+                  <option value="ok" {{ 'selected' if w.saved_status == 'ok' else '' }}>ok</option>
+                  <option value="watch" {{ 'selected' if w.saved_status == 'watch' else '' }}>watch</option>
+                  <option value="triggered" {{ 'selected' if w.saved_status == 'triggered' else '' }}>triggered</option>
+                </select>
+                <input type="text" name="latest_value" placeholder="latest reading" value="{{ w.latest_value or '' }}" />
+                <input type="text" name="note" placeholder="note" value="{{ w.note or '' }}" />
+                <button class="btn btn-primary" type="submit">Save</button>
+              </form>
+            </details>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="hint">
+      auto = computed from cached fundamentals at read time · semi = entered after each
+      print ("data due" = a report landed or looms since the last reading) · manual =
+      event rules. Saved judgment and computed status are shown together; the worse one
+      counts in the headline.
+    </p>
+    {% endif %}
   </div>
 
 {% endif %}

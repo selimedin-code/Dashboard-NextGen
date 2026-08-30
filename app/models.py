@@ -363,6 +363,44 @@ class UploadStaging(Base):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Tripwires  (Risk page, Zone 3 — the written exit rules)
+# ---------------------------------------------------------------------------
+
+
+class Tripwire(Base):
+    """One written exit rule. `ticker` NULL means portfolio-level.
+
+    mode:
+      auto   — evaluated at read time from cached data; `metric`/`threshold`/
+               `direction` drive the computation (see app/tripwires.py)
+      semi   — quarterly reading entered by hand; the UI flags "data due" when
+               the holding reports on/after the last update
+      manual — event rule toggled by hand
+
+    `status` is the SAVED judgment (ok | watch | triggered); auto rules may be
+    overridden by their computed status at read time, shown side by side.
+    """
+
+    __tablename__ = "tripwires"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    ticker: Mapped[str | None] = mapped_column(Text)
+    rule: Mapped[str] = mapped_column(Text, nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    mode: Mapped[str] = mapped_column(Text, nullable=False)
+    metric: Mapped[str | None] = mapped_column(Text)
+    threshold: Mapped[float | None] = mapped_column(Numeric)
+    direction: Mapped[str | None] = mapped_column(Text)
+    latest_value: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="ok")
+    note: Mapped[str | None] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class QuoteCache(Base):
     """Latest live quote per ticker. Written by the refresh action / daily cron;
     the position page reads only from here so a slow API never blocks a render.
