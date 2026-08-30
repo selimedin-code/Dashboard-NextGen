@@ -78,6 +78,11 @@ def import_pillars(session: Session, rows: list[dict]) -> dict:
         p.primary_etf = (r.get("primary_etf") or "").strip() or None
         p.alt_etf = (r.get("alt_etf") or "").strip() or None
         p.caveat = (r.get("etf_caveat") or "").strip() or None
+        # Optional column (Risk page): only set when present, so an older seed
+        # file never nulls an existing mapping.
+        mb = (r.get("macro_bet") or "").strip()
+        if mb:
+            p.macro_bet = mb
     return {"created": created, "updated": updated}
 
 

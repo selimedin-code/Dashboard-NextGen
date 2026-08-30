@@ -97,6 +97,9 @@ class Pillar(Base):
     primary_etf: Mapped[str | None] = mapped_column(Text)
     alt_etf: Mapped[str | None] = mapped_column(Text)
     caveat: Mapped[str | None] = mapped_column(Text)
+    # Effective-bet key for the Risk page (see app/risk_config.py). Groups the
+    # 13 pillars into ~9 macro bets; backfilled by migration a7c31e90d4f2.
+    macro_bet: Mapped[str | None] = mapped_column(Text)
 
 
 class Security(Base):

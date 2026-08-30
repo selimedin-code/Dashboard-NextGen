@@ -22,6 +22,13 @@ from sqlalchemy.orm import Session
 
 from app.models import Pillar
 from app.positions import build_positions
+from app.risk_config import (
+    BETS,
+    SCENARIO_NAME,
+    SCENARIO_NOTE,
+    UNMAPPED,
+    bet_for,
+)
 from sqlalchemy import select
 
 ZERO = Decimal("0")
@@ -52,6 +59,38 @@ class PillarExposure:
 
 
 @dataclass
+class BetExposure:
+    """One effective bet: pillars collapsed to their shared macro driver."""
+    key: str
+    label: str
+    in_ai_complex: bool
+    count: int
+    market_value: Decimal
+    fund_weight: Decimal          # % of whole fund
+    invested_weight: Decimal      # % of invested equity (the honest factor basis)
+    day_pnl: Decimal              # today's $ move of the bet (priced names w/ day %)
+    scenario_drawdown: Decimal    # assumption from risk_config
+    scenario_loss: Decimal        # market_value * drawdown
+
+
+@dataclass
+class RiskView:
+    """Zone 2 of the Risk page: effective bets, the AI-complex aggregate, and
+    the capex air-pocket scenario. Derived entirely from priced positions —
+    no new data source."""
+    bets: list[BetExposure]
+    ai_complex_value: Decimal
+    ai_complex_invested_weight: Decimal
+    ai_complex_fund_weight: Decimal
+    effective_bet_count: int          # bets holding >1% of invested equity
+    scenario_name: str
+    scenario_note: str
+    scenario_loss_total: Decimal
+    scenario_loss_pct_aum: Decimal    # vs whole fund incl. cash (cash cushions)
+    scenario_loss_pct_invested: Decimal
+
+
+@dataclass
 class ExposureView:
     as_of: date
     staleness_days: int
@@ -69,6 +108,7 @@ class ExposureView:
     holdings: list[Holding] = field(default_factory=list)
     pillars: list[PillarExposure] = field(default_factory=list)
     flags: list[Holding] = field(default_factory=list)
+    risk: RiskView | None = None
 
 
 def build_exposure(session: Session) -> ExposureView | None:
@@ -122,6 +162,51 @@ def build_exposure(session: Session) -> ExposureView | None:
         ))
     pillars.sort(key=lambda p: p.market_value, reverse=True)
 
+    # --- effective bets (Risk page, Zone 2) -------------------------------
+    # pillar NAME -> macro bet key, via the pillars table. Positions whose
+    # pillar is missing or unmapped land in the visible "unmapped" bucket.
+    bet_key_by_pillar_name = {p.name: p.macro_bet for p in pillar_meta.values()}
+    bet_agg: dict[str, dict] = {}
+    for r in priced:
+        meta = bet_for(bet_key_by_pillar_name.get(r.pillar)) if r.pillar else UNMAPPED
+        b = bet_agg.setdefault(meta.key, {"meta": meta, "mv": ZERO, "n": 0, "day": ZERO})
+        b["mv"] += r.market_value
+        b["n"] += 1
+        dc = getattr(r, "day_change_pct", None)
+        if dc is not None:
+            # today's $ move: mv - mv/(1+dc)
+            one = Decimal("1")
+            b["day"] += r.market_value - (r.market_value / (one + dc))
+
+    bets: list[BetExposure] = []
+    for b in bet_agg.values():
+        meta, mv = b["meta"], b["mv"]
+        bets.append(BetExposure(
+            key=meta.key, label=meta.label, in_ai_complex=meta.in_ai_complex,
+            count=b["n"], market_value=mv,
+            fund_weight=(mv / total) if total else ZERO,
+            invested_weight=(mv / invested) if invested else ZERO,
+            day_pnl=b["day"],
+            scenario_drawdown=meta.scenario_drawdown,
+            scenario_loss=mv * meta.scenario_drawdown,
+        ))
+    bets.sort(key=lambda x: (BETS[x.key].order if x.key in BETS else UNMAPPED.order))
+
+    complex_mv = sum((b.market_value for b in bets if b.in_ai_complex), ZERO)
+    scen_loss = sum((b.scenario_loss for b in bets), ZERO)
+    risk = RiskView(
+        bets=bets,
+        ai_complex_value=complex_mv,
+        ai_complex_invested_weight=(complex_mv / invested) if invested else ZERO,
+        ai_complex_fund_weight=(complex_mv / total) if total else ZERO,
+        effective_bet_count=sum(1 for b in bets if b.invested_weight > Decimal("0.01")),
+        scenario_name=SCENARIO_NAME,
+        scenario_note=SCENARIO_NOTE,
+        scenario_loss_total=scen_loss,
+        scenario_loss_pct_aum=(scen_loss / total) if total else ZERO,
+        scenario_loss_pct_invested=(scen_loss / invested) if invested else ZERO,
+    )
+
     return ExposureView(
         as_of=pv.as_of,
         staleness_days=pv.staleness_days,
@@ -139,4 +224,5 @@ def build_exposure(session: Session) -> ExposureView | None:
         holdings=holdings,
         pillars=pillars,
         flags=[h for h in holdings if h.flag],
+        risk=risk,
     )

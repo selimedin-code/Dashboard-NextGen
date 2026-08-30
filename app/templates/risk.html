@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Risk · NextGen{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Risk — factor map &amp; stress</h1>
+
+{% if view is none %}
+  <div class="card">
+    <div class="empty-badge">No data yet</div>
+    <p class="muted">Upload a snapshot and refresh prices to build the factor map.</p>
+    <a class="btn btn-primary" href="/upload" style="margin-top:10px">Upload a snapshot &rarr;</a>
+  </div>
+{% elif view.risk is none %}
+  <div class="flash flash-warn">Risk view unavailable — <a href="/positions">refresh prices</a> first.</div>
+{% else %}
+  {% set r = view.risk %}
+
+  {% if view.total_value == 0 %}
+    <div class="flash flash-warn">No live prices yet — <a href="/positions">refresh prices</a> to populate the factor map.</div>
+  {% endif %}
+
+  {# Headline numbers #}
+  <div class="prov">
+    <div class="{{ 'age-stale' if r.ai_complex_invested_weight > 0.85 else ('age-warn' if r.ai_complex_invested_weight > 0.75 else '') }}">
+      <b>AI-capex complex</b>
+      <span class="v num">{{ r.ai_complex_invested_weight|pct_plain }}</span>
+    </div>
+    <div>
+      <b>Effective bets (&gt;1%)</b>
+      <span class="v num">{{ r.effective_bet_count }}</span>
+    </div>
+    <div class="age-stale">
+      <b>{{ r.scenario_name }}</b>
+      <span class="v num">&minus;{{ r.scenario_loss_pct_aum|pct_plain }} AUM</span>
+    </div>
+    <div>
+      <b>Cash cushion</b>
+      <span class="v num">{{ view.cash_pct|pct_plain }}</span>
+    </div>
+  </div>
+
+  <p class="muted" style="margin:-2px 0 12px">
+    AI-capex complex = compute supply + hyperscalers + AI software + DC power/neoclouds/nuclear,
+    as % of invested equity — four layers of one macro bet (hyperscaler capex durability).
+    Snapshot {{ view.as_of }}{% if view.staleness_days > 0 %} · {{ view.staleness_days }}d old{% endif %}.
+    {% if view.unpriced %}<span class="age-stale">Excludes {{ view.unpriced|length }} unpriced: {{ view.unpriced|join(', ') }}.</span>{% endif %}
+  </p>
+
+  {# Effective bets #}
+  <div class="card">
+    <h2>Effective bets</h2>
+    {% set maxw = r.bets|map(attribute='invested_weight')|max if r.bets else 0 %}
+    <table>
+      <thead>
+        <tr>
+          <th>Bet</th><th class="num">Names</th><th class="num">Market value</th>
+          <th class="num">% invested</th><th>Weight</th><th class="num">Day P&amp;L</th>
+          <th class="num">Scenario</th><th class="num">Scenario loss</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for b in r.bets %}
+        <tr>
+          <td class="sym">{{ b.label }}{% if b.in_ai_complex %} <span class="chip trim" title="Part of the AI-capex complex">AI</span>{% endif %}</td>
+          <td class="num">{{ b.count }}</td>
+          <td class="num">{{ b.market_value|money }}</td>
+          <td class="num">{{ b.invested_weight|pct_plain }}</td>
+          <td style="width:180px">
+            <div class="pbar"><i style="width:{{ (b.invested_weight / maxw * 100) if maxw else 0 }}%"></i></div>
+          </td>
+          <td class="num {{ 'pos' if b.day_pnl > 0 else ('neg' if b.day_pnl < 0 else '') }}">{{ b.day_pnl|money }}</td>
+          <td class="num muted">&minus;{{ b.scenario_drawdown|pct_plain }}</td>
+          <td class="num">&minus;{{ b.scenario_loss|money }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td><b>Total</b></td>
+          <td class="num">{{ view.name_count }}</td>
+          <td class="num"><b>{{ view.invested_value|money }}</b></td>
+          <td class="num">100.0%</td>
+          <td></td>
+          <td></td>
+          <td></td>
+          <td class="num"><b>&minus;{{ r.scenario_loss_total|money }}</b></td>
+        </tr>
+      </tfoot>
+    </table>
+    <p class="hint">
+      Pillars collapse into bets by shared macro driver (mapping on the pillars table;
+      assumptions in <span class="mono">app/risk_config.py</span>).
+    </p>
+  </div>
+
+  {# Scenario #}
+  <div class="card">
+    <h2>{{ r.scenario_name }}</h2>
+    <table>
+      <tbody>
+        <tr><td>Indicative loss, total</td><td class="num sym">&minus;{{ r.scenario_loss_total|money }}</td></tr>
+        <tr><td>vs invested equity</td><td class="num sym">&minus;{{ r.scenario_loss_pct_invested|pct_plain }}</td></tr>
+        <tr><td>vs whole fund (cash cushions)</td><td class="num sym">&minus;{{ r.scenario_loss_pct_aum|pct_plain }}</td></tr>
+      </tbody>
+    </table>
+    <p class="hint">{{ r.scenario_note }}</p>
+  </div>
+
+{% endif %}
+{% endblock %}
