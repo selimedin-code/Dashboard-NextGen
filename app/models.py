@@ -401,6 +401,27 @@ class Tripwire(Base):
     )
 
 
+class GaugePoint(Base):
+    """One macro-gauge reading per day (Risk page, Zone 1).
+
+    `value` is the composite 0–100 score; NULL with `error` set is a first-class
+    "fetch failed" state, shown badged, never silently rendered as current.
+    `components` holds the per-input breakdown as JSON for the card.
+    """
+
+    __tablename__ = "gauge_points"
+
+    gauge: Mapped[str] = mapped_column(Text, primary_key=True)
+    as_of: Mapped[date] = mapped_column(Date, primary_key=True)
+    value: Mapped[float | None] = mapped_column(Numeric)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    components: Mapped[dict | None] = mapped_column(JSONB)
+    error: Mapped[str | None] = mapped_column(Text)
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class QuoteCache(Base):
     """Latest live quote per ticker. Written by the refresh action / daily cron;
     the position page reads only from here so a slow API never blocks a render.

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.auth import require_auth
 from app.db import get_session
 from app.exposure import build_exposure
+from app.gauges import build_gauges, refresh_gauges
 from app.tripwires import build_tripwires, update_tripwire
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -30,13 +31,35 @@ def init_templates(t: Jinja2Templates) -> None:
 def risk_view(
     request: Request,
     saved: str | None = None,
+    gauges_msg: str | None = None,
     session: Session = Depends(get_session),
 ):
     view = build_exposure(session)
     wires = build_tripwires(session)
+    gauges = build_gauges(session)
     return templates.TemplateResponse(
-        request, "risk.html", {"view": view, "wires": wires, "saved": saved}
+        request, "risk.html",
+        {"view": view, "wires": wires, "gauges": gauges,
+         "saved": saved, "gauges_msg": gauges_msg},
     )
+
+
+@router.post("/risk/refresh-gauges")
+def gauges_refresh(session: Session = Depends(get_session)):
+    """Fetch FRED + FMP inputs and store today's gauge points. Same manual-
+    button + cron-friendly pattern as the quote refresh."""
+    try:
+        summary = refresh_gauges(session)
+        session.commit()
+        msg = f"{summary['ok']} gauges scored"
+        if summary["degraded"]:
+            msg += f", {summary['degraded']} degraded"
+        if summary["failed"]:
+            msg += f", {summary['failed']} failed"
+    except Exception as exc:  # noqa: BLE001 — surface, never 500 the page
+        session.rollback()
+        msg = f"error: {exc}"
+    return RedirectResponse(url=f"/risk?gauges_msg={msg}", status_code=303)
 
 
 @router.post("/risk/tripwire/{wire_id}")

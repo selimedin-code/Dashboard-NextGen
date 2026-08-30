@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     # External data sources (unused by the scaffold; wired in later phases).
     alphavantage_api_key: str | None = Field(default=None, alias="ALPHAVANTAGE_API_KEY")
     fmp_api_key: str | None = Field(default=None, alias="FMP_API_KEY")
+    fred_api_key: str | None = Field(default=None, alias="FRED_API_KEY")
 
     app_env: str = Field(default="development", alias="APP_ENV")
 

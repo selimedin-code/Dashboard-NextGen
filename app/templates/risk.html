@@ -4,6 +4,55 @@
 {% block content %}
 <h1 class="page-title">Risk — factor map &amp; stress</h1>
 
+{# Zone 1 — macro gauges. Render whenever gauge data exists, even before a snapshot. #}
+{% if gauges %}
+  {% if gauges_msg %}<div class="flash{{ ' flash-warn' if 'error' in gauges_msg or 'failed' in gauges_msg else '' }}">Gauges: {{ gauges_msg }}</div>{% endif %}
+  <div class="split" style="grid-template-columns: repeat(3, 1fr); align-items: stretch">
+    {% for g in gauges.cards %}
+    <div class="card">
+      <h2 style="display:flex; justify-content:space-between; align-items:baseline">
+        {{ g.label }}
+        {% if g.css == 'alert' %}<span class="chip close">{{ g.status_label }}</span>
+        {% elif g.css == 'watch' %}<span class="chip trim">{{ g.status_label }}</span>
+        {% else %}<span class="chip">{{ g.status_label }}</span>{% endif %}
+      </h2>
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px">
+        <span class="v num" style="font-size:1.6em">{% if g.value is not none %}{{ g.value|dec1 }}{% else %}—{% endif %}</span>
+        {% if g.spark %}
+        <svg width="120" height="28" aria-hidden="true"><polyline points="{{ g.spark }}" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+        {% endif %}
+      </div>
+      <p class="hint" style="margin:4px 0 6px">{{ g.higher_means }}
+        {% if g.as_of %} · {{ g.as_of }}{% endif %}
+        {% if g.stale %} <span class="age-stale">stale</span>{% endif %}
+      </p>
+      {% if g.error %}<p class="small age-stale">{{ g.error }}</p>{% endif %}
+      {% if g.components %}
+      <table class="small">
+        <tbody>
+        {% for c in g.components %}
+          <tr>
+            <td>{{ c.label }}</td>
+            {% if c.error %}
+              <td class="age-stale" colspan="2">{{ c.error }}</td>
+            {% else %}
+              <td class="num mono">{{ c.raw }}</td>
+              <td class="num muted">{{ c.score }}</td>
+            {% endif %}
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  <form method="post" action="/risk/refresh-gauges" style="margin:-4px 0 14px">
+    <button class="btn" type="submit">Refresh gauges</button>
+    <span class="hint">FRED (HY/IG OAS, STLFSI) + FMP (VIX, HYG/IEF, RSP/SPY). Turkey deliberately excluded — US monitor only. Wire a Render cron to POST this daily pre-session.</span>
+  </form>
+{% endif %}
+
 {% if view is none %}
   <div class="card">
     <div class="empty-badge">No data yet</div>

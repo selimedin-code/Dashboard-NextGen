@@ -65,3 +65,98 @@ def bet_for(macro_bet_key: str | None) -> BetMeta:
     if macro_bet_key is None:
         return UNMAPPED
     return BETS.get(macro_bet_key, UNMAPPED)
+
+
+# ---------------------------------------------------------------------------
+# Zone 1 — macro gauges. Policy only; fetching/eval lives in app/gauges.py.
+#
+# Each component maps a raw input to a 0–100 score by piecewise-linear
+# interpolation through a (p0 → 0, p50 → 50, p100 → 100) triple, clamped at
+# the ends. The triple may run in either direction — for the risk-appetite
+# gauge a FALLING VIX scores higher. Weights renormalize over the components
+# that actually fetched, so one failed input degrades the gauge visibly
+# instead of zeroing it.
+#
+# Turkey is deliberately excluded from the credit gauge (per the managers) —
+# this is a US-funding/credit monitor, not an EM one.
+#
+# kinds: fred        — latest FRED observation (params: series)
+#        fmp_level   — FMP quote price (params: symbol)
+#        fmp_spread  — day-change difference a−b, as a fraction, computed from
+#                      price/prev_close (params: a, b)
+#        fmp_daychg  — one symbol's day change, as a fraction (params: symbol)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class GaugeComponent:
+    key: str
+    label: str
+    kind: str                 # fred | fmp_level | fmp_spread | fmp_daychg
+    params: tuple             # (series,) or (symbol,) or (a, b)
+    p0: Decimal
+    p50: Decimal
+    p100: Decimal
+    weight: Decimal
+    fmt: str                  # python format spec for the raw value
+
+
+@dataclass(frozen=True)
+class GaugeDef:
+    key: str
+    label: str
+    higher_means: str         # shown on the card, e.g. "higher = more stress"
+    components: tuple
+    # bands evaluated top-down: (min_score or None, label, css) — None matches all
+    bands: tuple
+
+
+GAUGES: dict[str, GaugeDef] = {g.key: g for g in [
+    GaugeDef(
+        key="stress", label="Stress composite", higher_means="higher = more stress",
+        components=(
+            GaugeComponent("hy_oas", "HY OAS", "fred", ("BAMLH0A0HYM2",),
+                           Decimal("3.0"), Decimal("5.0"), Decimal("8.0"), Decimal("0.35"), "{:.2f}%"),
+            GaugeComponent("ig_oas", "IG OAS", "fred", ("BAMLC0A0CM",),
+                           Decimal("1.0"), Decimal("1.5"), Decimal("2.5"), Decimal("0.15"), "{:.2f}%"),
+            GaugeComponent("vix", "VIX", "fmp_level", ("^VIX",),
+                           Decimal("15"), Decimal("25"), Decimal("40"), Decimal("0.30"), "{:.1f}"),
+            GaugeComponent("stlfsi", "STLFSI (weekly)", "fred", ("STLFSI4",),
+                           Decimal("-0.5"), Decimal("0.5"), Decimal("2.5"), Decimal("0.20"), "{:+.2f}"),
+        ),
+        bands=((Decimal("50"), "stressed", "alert"),
+               (Decimal("25"), "elevated", "watch"),
+               (None, "calm", "ok")),
+    ),
+    GaugeDef(
+        key="appetite", label="Risk appetite", higher_means="higher = risk-on",
+        components=(
+            GaugeComponent("vix", "VIX (inverted)", "fmp_level", ("^VIX",),
+                           Decimal("40"), Decimal("25"), Decimal("15"), Decimal("0.40"), "{:.1f}"),
+            GaugeComponent("credit", "HYG−IEF day spread", "fmp_spread", ("HYG", "IEF"),
+                           Decimal("-0.010"), Decimal("0"), Decimal("0.010"), Decimal("0.30"), "{:+.2%}"),
+            GaugeComponent("breadth", "RSP−SPY day spread", "fmp_spread", ("RSP", "SPY"),
+                           Decimal("-0.005"), Decimal("0"), Decimal("0.005"), Decimal("0.30"), "{:+.2%}"),
+        ),
+        bands=((Decimal("60"), "risk-on", "ok"),
+               (Decimal("40"), "neutral", "watch"),
+               (None, "risk-off", "alert")),
+    ),
+    GaugeDef(
+        key="credit", label="Credit stress (US, ex-Turkey)", higher_means="higher = worse",
+        components=(
+            GaugeComponent("hy_oas", "HY OAS", "fred", ("BAMLH0A0HYM2",),
+                           Decimal("3.0"), Decimal("5.0"), Decimal("8.0"), Decimal("0.45"), "{:.2f}%"),
+            GaugeComponent("ig_oas", "IG OAS", "fred", ("BAMLC0A0CM",),
+                           Decimal("1.0"), Decimal("1.5"), Decimal("2.5"), Decimal("0.20"), "{:.2f}%"),
+            GaugeComponent("hyg_day", "HYG day move", "fmp_daychg", ("HYG",),
+                           Decimal("0"), Decimal("-0.010"), Decimal("-0.025"), Decimal("0.20"), "{:+.2%}"),
+            GaugeComponent("vix", "VIX", "fmp_level", ("^VIX",),
+                           Decimal("15"), Decimal("25"), Decimal("40"), Decimal("0.15"), "{:.1f}"),
+        ),
+        bands=((Decimal("50"), "crisis risk", "alert"),
+               (Decimal("25"), "elevated", "watch"),
+               (None, "calm", "ok")),
+    ),
+]}
+
+GAUGE_STALE_DAYS = 3   # badge the card when the latest point is older than this
