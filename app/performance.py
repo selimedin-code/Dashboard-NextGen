@@ -84,6 +84,8 @@ def parse_nav_csv(data: bytes) -> list[tuple[date, Decimal]]:
         norm = {k.strip().lower(): v for k, v in row.items() if k}
         d = norm.get("date") or norm.get("as_of")
         nav = norm.get("nav_per_share") or norm.get("nav") or norm.get("price") or norm.get("nav (usd)")
+        if nav is None:  # tolerate variants like "Price_USD" / "NAV per share"
+            nav = next((v for k, v in norm.items() if "nav" in k or "price" in k), None)
         if not d or not nav:
             continue
         try:
@@ -101,17 +103,21 @@ def _parse_nav_xlsx(data: bytes) -> list[tuple[date, Decimal]]:
 
     wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     ws = wb["Daily NAV"] if "Daily NAV" in wb.sheetnames else wb.active
-    date_i = nav_i = None
+    date_i = nav_i = price_i = None
     out: list[tuple[date, Decimal]] = []
     for row in ws.iter_rows(values_only=True):
-        if date_i is None or nav_i is None:
+        if date_i is None or (nav_i is None and price_i is None):
             for i, c in enumerate(row):
                 s = str(c or "").strip().lower()
                 if s == "date":
                     date_i = i
                 elif "nav" in s and nav_i is None:
                     nav_i = i
+                elif "price" in s and price_i is None:  # e.g. "Price_USD"
+                    price_i = i
             continue
+        if nav_i is None:
+            nav_i = price_i  # a NAV-named column wins when both exist
         d, nav = row[date_i], row[nav_i]
         if d is None or nav is None:
             continue

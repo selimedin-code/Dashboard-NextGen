@@ -81,7 +81,18 @@ def nav_delete(as_of: str = Form(...), session: Session = Depends(get_session)):
 @router.post("/performance/nav/upload")
 async def nav_upload(file: UploadFile, session: Session = Depends(get_session)):
     data = await file.read()
-    points = parse_nav_file(file.filename or "upload.csv", data)
+    try:
+        points = parse_nav_file(file.filename or "upload.csv", data)
+    except Exception:  # noqa: BLE001 — unreadable file must not 500 the page
+        return RedirectResponse(
+            url=f"/performance?msg=import failed: could not read {file.filename} "
+                "(expected .csv or .xlsx)",
+            status_code=status.HTTP_303_SEE_OTHER)
+    if not points:
+        return RedirectResponse(
+            url="/performance?msg=import found no rows: need a Date column and a "
+                "NAV or Price column",
+            status_code=status.HTTP_303_SEE_OTHER)
     n = bulk_add_nav_points(session, points)
     return RedirectResponse(url=f"/performance?msg={n} NAV points imported",
                             status_code=status.HTTP_303_SEE_OTHER)

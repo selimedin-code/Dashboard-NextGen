@@ -74,6 +74,30 @@ def test_parse_nav_xlsx_daily_nav_sheet():
     assert pts == [(date(2023, 11, 2), Decimal("1000.61")), (date(2026, 7, 16), Decimal("1646.90"))]
 
 
+def test_parse_nav_xlsx_price_column():
+    # Regression: a broker export with "Price_USD" instead of a NAV-named column
+    # used to import 0 rows.
+    import io
+    from datetime import datetime as dt
+    from openpyxl import Workbook
+    from app.performance import parse_nav_file
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Date", "Price_USD"])
+    ws.append([dt(2026, 7, 31), 1583.38])
+    ws.append([dt(2026, 8, 3), 1639.79])
+    buf = io.BytesIO(); wb.save(buf)
+
+    pts = parse_nav_file("price.xlsx", buf.getvalue())
+    assert pts == [(date(2026, 7, 31), Decimal("1583.38")), (date(2026, 8, 3), Decimal("1639.79"))]
+
+
+def test_parse_nav_csv_price_variant_header():
+    assert parse_nav_csv(b"date,price_usd\n2026-07-31,1583.38\n") == \
+        [(date(2026, 7, 31), Decimal("1583.38"))]
+
+
 def test_bulk_add_nav_points_upserts(session):
     from app.performance import bulk_add_nav_points
     n = bulk_add_nav_points(session, [(date(2023, 11, 2), Decimal("1000.61")),
