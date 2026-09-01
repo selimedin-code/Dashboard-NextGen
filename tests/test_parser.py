@@ -36,6 +36,25 @@ def test_parse_excel_basic():
     assert by[CASH_TICKER].avg_cost == Decimal("1")
 
 
+def test_parse_excel_unlabeled_cost_column():
+    # Regression: a broker export whose avg-cost column has a blank header
+    # ("Ticker | ISIN | Name | Sector | Total units | <blank> | <blank>")
+    # used to fail header detection outright.
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Ticker", "ISIN", "Name", "Sector", "Total units", None, None])
+    ws.append(["USD", None, "Cash", "n.a.", 240659.51, None, 1])
+    ws.append(["AAPL US", "US0378331005", "Apple Inc", "Technology", 471.65, 185.60, 316.85])
+    buf = io.BytesIO(); wb.save(buf)
+
+    result = parse_excel(buf.getvalue())
+    by = {h.ticker: h for h in result.holdings}
+    assert by["AAPL"].units == Decimal("471.65")
+    assert by["AAPL"].avg_cost == Decimal("185.6")
+    assert by[CASH_TICKER].is_cash
+    assert any("assumed the unlabeled column" in w for w in result.warnings)
+
+
 def test_parse_excel_column_order_and_synonyms():
     data = _make_excel(
         [("AMD US", "US0079031078", "AMD", 277.73, 134.65)],

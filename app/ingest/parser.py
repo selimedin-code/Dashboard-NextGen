@@ -103,6 +103,7 @@ def parse_excel(data: bytes) -> ParseResult:
 
     # Find the header row: the first row that maps at least ticker + units + cost.
     header_index: dict[int, str] | None = None
+    assumed_cost_col = False
     for raw_row in rows:
         mapping: dict[int, str] = {}
         for i, cell in enumerate(raw_row):
@@ -112,6 +113,18 @@ def parse_excel(data: bytes) -> ParseResult:
         if {"ticker", "units", "avg_cost"}.issubset(mapping.values()):
             header_index = mapping
             break
+        # Custodian variant: the avg-cost column exists but its header cell is
+        # blank (e.g. "Ticker | ISIN | Name | Sector | Total units | <blank>").
+        # If the column right of Units is unlabeled, assume it is Avg Cost and
+        # say so in a warning the preview shows.
+        if {"ticker", "units"}.issubset(mapping.values()):
+            units_i = next(i for i, f in mapping.items() if f == "units")
+            nxt = units_i + 1
+            if nxt not in mapping and (nxt >= len(raw_row) or _norm_header(raw_row[nxt]) == ""):
+                mapping[nxt] = "avg_cost"
+                header_index = mapping
+                assumed_cost_col = True
+                break
 
     if header_index is None:
         raise ParseError(
@@ -121,6 +134,11 @@ def parse_excel(data: bytes) -> ParseResult:
 
     holdings: list[ParsedHolding] = []
     warnings: list[str] = []
+    if assumed_cost_col:
+        warnings.append(
+            "No Avg Cost header found — assumed the unlabeled column right of the "
+            "Units column holds average cost. Check the preview values before committing."
+        )
     for raw_row in rows:  # continues after the header row
         record = {field_name: raw_row[i] for i, field_name in header_index.items() if i < len(raw_row)}
         raw_ticker = record.get("ticker")
