@@ -36,6 +36,8 @@
 
 {% if refreshed %}<div class="flash flash-ok">Fundamentals refreshed — {{ refreshed }}.</div>{% endif %}
 {% if saved %}<div class="flash flash-ok">Thesis note saved.</div>{% endif %}
+{% if review %}<div class="flash flash-ok">{{ review }}</div>{% endif %}
+{% if review_err %}<div class="flash flash-err">{{ review_err }}</div>{% endif %}
 
 <div class="split">
   {# Position context #}
@@ -90,8 +92,8 @@
     {% endfor %}
     <polyline fill="none" stroke="#3167D6" stroke-width="1.5" points="{{ d.chart.points }}"/>
     {% for m in d.chart.markers %}
-      {% set col = {'OPEN':'#1F8A5B','ADD':'#3167D6','TRIM':'#B8912F','CLOSE':'#D6493A'}[m.kind] %}
-      <circle cx="{{ m.x }}" cy="{{ m.y }}" r="4" fill="{{ col }}" stroke="#fff" stroke-width="1.5"><title>{{ m.kind }} {{ m.label }}{% if m.price is not none %} · {{ m.price|money }}{% endif %}</title></circle>
+      {% set col = {'OPEN':'#1F8A5B','ADD':'#3167D6','TRIM':'#B8912F','CLOSE':'#D6493A','REVIEW':'#7B4FD6'}[m.kind] %}
+      <circle cx="{{ m.x }}" cy="{{ m.y }}" r="{{ 3.5 if m.kind == 'REVIEW' else 4 }}" fill="{{ col }}" stroke="#fff" stroke-width="1.5"><title>{{ m.kind }} {{ m.label }}{% if m.price is not none %} · {{ m.price|money }}{% endif %}</title></circle>
     {% endfor %}
     <circle cx="{{ d.chart.last_x }}" cy="{{ d.chart.last_y }}" r="3" fill="#141414"/>
   </svg>
@@ -147,6 +149,69 @@
       <div class="actions" style="margin-top:8px"><button class="btn btn-primary">Save note</button></div>
     </form>
   </div>
+</div>
+
+{# Review log #}
+<div class="card" id="reviews">
+  <h2>Review log <span class="muted" style="font-size:12px;font-weight:400">— dated notes, stamped with the price at the time</span></h2>
+
+  <form method="post" action="/ticker/{{ d.ticker }}/reviews" enctype="multipart/form-data" class="review-form">
+    <textarea name="note" rows="4" placeholder="What changed, what we concluded, what to watch next…"></textarea>
+    <div class="review-fields">
+      <label>Date <input type="date" name="review_date" value="{{ today }}"></label>
+      <label>Price <input type="text" name="price" placeholder="{{ d.current_price|money if d.current_price else 'live' }}" title="Leave blank to capture the live price"></label>
+      <label>Stance
+        <select name="stance">
+          <option value="">—</option>
+          {% for s in d.stances %}<option value="{{ s }}">{{ s|title }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="grow">Attachments <input type="file" name="files" multiple
+        accept=".pdf,.xlsx,.xlsm,.xls,.csv,.docx,.doc,.pptx,.md,.txt,.html,.htm,.png,.jpg,.jpeg"></label>
+      <button class="btn btn-primary">Add review</button>
+    </div>
+    <p class="hint">Leave price blank to capture the live quote. Excel, PDF, Word, PowerPoint, HTML or images, up to 25 MB each.</p>
+  </form>
+
+  {% if d.reviews %}
+  <div class="review-list">
+    {% for row in d.reviews %}{% set r = row.review %}
+    <div class="review-item">
+      <div class="review-head">
+        <span class="num" style="font-weight:700">{{ r.review_date }}</span>
+        {% if r.stance %}<span class="chip {{ {'ADD':'add','HOLD':'hold','TRIM':'trim','EXIT':'close','WATCH':'open'}[r.stance] }}">{{ r.stance }}</span>{% endif %}
+        <span class="num">
+          {% if r.price is not none %}@ {{ r.price|money }}
+            <span class="small" title="{% if r.price_as_of %}as of {{ r.price_as_of.strftime('%Y-%m-%d %H:%M') }} UTC{% endif %}">{{ r.price_source }}</span>
+          {% else %}<span class="small">no price</span>{% endif %}
+        </span>
+        {% if row.since_pct is not none %}
+          <span class="num {{ 'pos' if row.since_pct > 0 else 'neg' if row.since_pct < 0 else '' }}" title="current {{ d.current_price|money }} vs review price">{{ row.since_pct|pct }} since</span>
+        {% endif %}
+        <form method="post" action="/ticker/{{ d.ticker }}/reviews/{{ r.id }}/delete" style="margin:0 0 0 auto"
+              onsubmit="return confirm('Delete this review and its attachments?')">
+          <button class="btn-link">delete</button>
+        </form>
+      </div>
+      {% if r.note %}<div class="review-note">{{ r.note }}</div>{% endif %}
+      <div class="review-files">
+        {% for a in r.attachments %}
+          <span class="review-file">
+            <a href="/ticker/{{ d.ticker }}/attachments/{{ a.id }}" target="_blank" rel="noopener">{{ a.filename }}</a>
+            <span class="small">{{ '%.1f MB'|format(a.size_bytes/1048576) if a.size_bytes >= 1048576 else '%d KB'|format((a.size_bytes/1024)|round(0, 'ceil')) }}</span>
+            <form method="post" action="/ticker/{{ d.ticker }}/attachments/{{ a.id }}/delete" style="display:inline;margin:0"
+                  onsubmit="return confirm('Remove {{ a.filename|e }}?')"><button class="btn-link" title="remove">×</button></form>
+          </span>
+        {% endfor %}
+        <form method="post" action="/ticker/{{ d.ticker }}/reviews/{{ r.id }}/attach" enctype="multipart/form-data" class="review-attach">
+          <label class="btn-link">+ attach<input type="file" name="files" multiple hidden onchange="this.form.submit()"
+            accept=".pdf,.xlsx,.xlsm,.xls,.csv,.docx,.doc,.pptx,.md,.txt,.html,.htm,.png,.jpg,.jpeg"></label>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}<p class="muted" style="margin-top:12px">No reviews yet.</p>{% endif %}
 </div>
 
 {# Forward estimates #}

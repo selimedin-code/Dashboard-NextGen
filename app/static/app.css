@@ -152,3 +152,23 @@ select{border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-size
 
 footer,.footer{font-size:12px;color:var(--dim);margin-top:22px;line-height:1.7;text-align:center}
 @media(max-width:640px){body{padding:16px 12px 40px}h1{font-size:22px}th,td{padding:7px 5px;font-size:12.5px}}
+
+/* Review log (ticker page). scroll-margin clears the sticky nav + ticker bar on the #reviews jump. */
+#reviews{scroll-margin-top:150px}
+.review-form textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:9px 11px;font:inherit;font-size:13px;resize:vertical}
+.review-fields{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-top:8px}
+.review-fields label{display:flex;flex-direction:column;gap:3px;font-size:11.5px;font-weight:700;color:var(--muted)}
+.review-fields label.grow{flex:1 1 220px}
+.review-fields input[type=text],.review-fields input[type=date],.review-fields select{
+  border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:inherit;font-size:13px;font-weight:400;color:var(--ink);background:var(--card)}
+.review-fields input[type=text]{width:100px;text-align:right}
+.review-fields input[type=file]{font-size:12px;font-weight:400}
+.review-list{margin-top:14px}
+.review-item{padding:12px 0;border-top:1px solid var(--div)}
+.review-head{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:13px}
+.review-note{white-space:pre-wrap;font-size:13px;margin-top:6px;line-height:1.5}
+.review-files{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px}
+.review-file{display:inline-flex;gap:5px;align-items:center;background:var(--neutral-bg);border-radius:6px;padding:3px 8px;font-size:12px}
+.review-attach{display:inline;margin:0}
+.btn-link{background:none;border:0;padding:0;color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
+.btn-link:hover{color:var(--accent)}

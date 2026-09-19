@@ -21,6 +21,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -458,3 +459,56 @@ class PriceHistoryCache(Base):
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+# ---------------------------------------------------------------------------
+# Review log: dated notes per ticker, each stamped with the price at the time,
+# plus attached reports (Excel models, PDF write-ups).
+# ---------------------------------------------------------------------------
+
+
+class ReviewLog(Base):
+    """One review of a ticker. `price` is captured when the entry is written
+    (typed by hand, else a live quote, else the cached quote) so later reviews
+    can show how the stock moved since. `price_source` records which."""
+
+    __tablename__ = "review_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    ticker: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    review_date: Mapped[date] = mapped_column(Date, nullable=False)
+    price: Mapped[float | None] = mapped_column(Money)
+    price_source: Mapped[str | None] = mapped_column(Text)   # manual | live | cached
+    price_as_of: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    stance: Mapped[str | None] = mapped_column(Text)         # ADD | HOLD | TRIM | EXIT | WATCH
+    note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    attachments: Mapped[list[ReviewAttachment]] = relationship(
+        back_populates="review", cascade="all, delete-orphan",
+        order_by="ReviewAttachment.id",
+    )
+
+
+class ReviewAttachment(Base):
+    """A file attached to a review. Bytes live in Postgres: Render's web disk is
+    ephemeral, so files written there would vanish on the next deploy. `data` is
+    deferred so listing reviews never loads the blobs."""
+
+    __tablename__ = "review_attachment"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    review_id: Mapped[int] = mapped_column(
+        ForeignKey("review_log.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    filename: Mapped[str] = mapped_column(Text, nullable=False)
+    content_type: Mapped[str | None] = mapped_column(Text)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False, deferred=True)
+    uploaded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    review: Mapped[ReviewLog] = relationship(back_populates="attachments")

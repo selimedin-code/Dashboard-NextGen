@@ -22,10 +22,12 @@ from app.models import (
     NewsItem,
     Pillar,
     PriceHistoryCache,
+    QuoteCache,
     Security,
     Snapshot,
 )
 from app.positions import build_positions
+from app.reviews import STANCES, ReviewRow, list_reviews
 
 CHART_W = 720
 CHART_H = 200
@@ -36,7 +38,7 @@ CHART_PAD = 6
 class Marker:
     x: float
     y: float
-    kind: str          # OPEN | ADD | TRIM | CLOSE
+    kind: str          # OPEN | ADD | TRIM | CLOSE | REVIEW
     label: str
     price: Decimal | None = None
 
@@ -102,6 +104,9 @@ class TickerDetail:
     news: list[NewsItem] = field(default_factory=list)
     chart: Chart | None = None
     derived: dict = field(default_factory=dict)
+    reviews: list[ReviewRow] = field(default_factory=list)
+    current_price: Decimal | None = None
+    stances: tuple[str, ...] = STANCES
 
 
 def get_ticker_detail(session: Session, ticker: str) -> TickerDetail:
@@ -150,7 +155,15 @@ def get_ticker_detail(session: Session, ticker: str) -> TickerDetail:
         .order_by(NewsItem.published_at.desc().nulls_last()).limit(15)
     ).scalars().all())
 
-    detail.chart = _build_chart(session, ticker, detail.changes)
+    if position is not None and getattr(position, "price", None):
+        detail.current_price = position.price
+    else:
+        q = session.get(QuoteCache, ticker)
+        if q is not None and q.ok and q.price is not None:
+            detail.current_price = Decimal(q.price)
+    detail.reviews = list_reviews(session, ticker, detail.current_price)
+
+    detail.chart = _build_chart(session, ticker, detail.changes, detail.reviews)
     detail.derived = _derived(detail, position)
     return detail
 
@@ -165,7 +178,8 @@ def _change_history(session: Session, ticker: str) -> list[dict]:
     return [{"as_of": as_of, "change": c} for c, as_of in rows]
 
 
-def _build_chart(session: Session, ticker: str, changes: list[dict]) -> Chart | None:
+def _build_chart(session: Session, ticker: str, changes: list[dict],
+                 reviews: list[ReviewRow] = ()) -> Chart | None:
     cache = session.get(PriceHistoryCache, ticker)
     if cache is None or not cache.series:
         return None
@@ -189,17 +203,28 @@ def _build_chart(session: Session, ticker: str, changes: list[dict]) -> Chart | 
         pts.append(f"{x_at(n-1):.1f},{y_at(series[-1][1]):.1f}")
 
     date_to_i = {d: i for i, d in enumerate(d for d, _ in series)}
-    markers: list[Marker] = []
-    for ch in changes:
-        d = ch["as_of"].isoformat()
+    def index_on_or_before(d: str) -> int | None:
         i = date_to_i.get(d)
         if i is None:  # nearest earlier date
             earlier = [j for j, (dd, _) in enumerate(series) if dd <= d]
             i = earlier[-1] if earlier else None
+        return i
+
+    markers: list[Marker] = []
+    for ch in changes:
+        d = ch["as_of"].isoformat()
+        i = index_on_or_before(d)
         if i is not None:
             markers.append(Marker(x=x_at(i), y=y_at(series[i][1]),
                                   kind=ch["change"].change_type, label=d,
                                   price=series[i][1]))
+    for row in reviews:
+        r = row.review
+        i = index_on_or_before(r.review_date.isoformat())
+        if i is not None:
+            markers.append(Marker(x=x_at(i), y=y_at(series[i][1]), kind="REVIEW",
+                                  label=f"{r.review_date}{' · ' + r.stance if r.stance else ''}",
+                                  price=Decimal(r.price) if r.price is not None else series[i][1]))
 
     gridlines = [Gridline(y=y_at(lv), frac=y_at(lv) / CHART_H, level=lv)
                  for lv in _grid_levels(lo, hi)]

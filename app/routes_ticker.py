@@ -5,8 +5,11 @@ cache; the thesis note is editable and saved to the security."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Form, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from datetime import date
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -14,6 +17,7 @@ from app.auth import require_auth
 from app.db import get_session
 from app.fundamentals import refresh_ticker
 from app.models import Security
+from app import reviews as rv
 from app.ticker_detail import get_ticker_detail
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -31,11 +35,15 @@ def ticker_view(
     ticker: str,
     refreshed: str | None = None,
     saved: str | None = None,
+    review: str | None = None,
+    review_err: str | None = None,
     session: Session = Depends(get_session),
 ):
     detail = get_ticker_detail(session, ticker.upper())
     return templates.TemplateResponse(
-        request, "ticker.html", {"d": detail, "refreshed": refreshed, "saved": saved}
+        request, "ticker.html",
+        {"d": detail, "refreshed": refreshed, "saved": saved,
+         "review": review, "review_err": review_err, "today": date.today().isoformat()},
     )
 
 
@@ -80,3 +88,94 @@ def ticker_stop(ticker: str, stop_price: str = Form(""), session: Session = Depe
         sec.stop_price = None
     session.commit()
     return RedirectResponse(url=f"/ticker/{ticker}?saved=1", status_code=status.HTTP_303_SEE_OTHER)
+
+
+# ---------------------------------------------------------------------------
+# Review log
+# ---------------------------------------------------------------------------
+
+
+def _back(ticker: str, *, ok: str | None = None, err: str | None = None) -> RedirectResponse:
+    q = f"review={quote(ok)}" if ok else f"review_err={quote(err or '')}"
+    return RedirectResponse(url=f"/ticker/{ticker}?{q}#reviews",
+                            status_code=status.HTTP_303_SEE_OTHER)
+
+
+async def _read(files: list[UploadFile]) -> list[rv.UploadedFile]:
+    return [rv.UploadedFile(f.filename or "", f.content_type, await f.read()) for f in files]
+
+
+@router.post("/ticker/{ticker}/reviews")
+async def review_create(
+    ticker: str,
+    note: str = Form(""),
+    price: str = Form(""),
+    stance: str = Form(""),
+    review_date: str = Form(""),
+    files: list[UploadFile] = File(default=[]),
+    session: Session = Depends(get_session),
+):
+    ticker = ticker.upper()
+    try:
+        d = date.fromisoformat(review_date) if review_date.strip() else None
+    except ValueError:
+        return _back(ticker, err=f"Bad date '{review_date}'.")
+    try:
+        r = rv.create_review(session, ticker, note=note, price_raw=price, stance=stance,
+                             review_date=d, files=await _read(files))
+    except rv.ReviewError as exc:
+        session.rollback()
+        return _back(ticker, err=str(exc))
+    if r.price is None:
+        return _back(ticker, ok="Review saved — no price available (enter one by hand next time).")
+    return _back(ticker, ok=f"Review saved at {r.price:,.2f} ({r.price_source}).")
+
+
+@router.post("/ticker/{ticker}/reviews/{review_id}/attach")
+async def review_attach(ticker: str, review_id: int,
+                        files: list[UploadFile] = File(default=[]),
+                        session: Session = Depends(get_session)):
+    ticker = ticker.upper()
+    try:
+        r = rv.add_attachments(session, ticker, review_id, await _read(files))
+    except rv.ReviewError as exc:
+        session.rollback()
+        return _back(ticker, err=str(exc))
+    return _back(ticker, ok=f"Attached to review of {r.review_date}.")
+
+
+@router.post("/ticker/{ticker}/reviews/{review_id}/delete")
+def review_delete(ticker: str, review_id: int, session: Session = Depends(get_session)):
+    ticker = ticker.upper()
+    try:
+        rv.delete_review(session, ticker, review_id)
+    except rv.ReviewError as exc:
+        return _back(ticker, err=str(exc))
+    return _back(ticker, ok="Review deleted.")
+
+
+@router.post("/ticker/{ticker}/attachments/{attachment_id}/delete")
+def attachment_delete(ticker: str, attachment_id: int, session: Session = Depends(get_session)):
+    ticker = ticker.upper()
+    try:
+        rv.delete_attachment(session, ticker, attachment_id)
+    except rv.ReviewError as exc:
+        return _back(ticker, err=str(exc))
+    return _back(ticker, ok="Attachment removed.")
+
+
+@router.get("/ticker/{ticker}/attachments/{attachment_id}")
+def attachment_download(ticker: str, attachment_id: int, session: Session = Depends(get_session)):
+    att = rv.get_attachment(session, ticker.upper(), attachment_id)
+    if att is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    # PDFs/images open in the browser tab; spreadsheets and docs download.
+    ctype = att.content_type or "application/octet-stream"
+    inline = ctype == "application/pdf" or ctype.startswith("image/")
+    disp = "inline" if inline else "attachment"
+    ascii_name = att.filename.encode("ascii", "replace").decode().replace('"', "")
+    return Response(
+        content=att.data, media_type=ctype,
+        headers={"Content-Disposition":
+                 f"{disp}; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(att.filename)}"},
+    )
