@@ -40,8 +40,14 @@
   {# Freshness + refresh #}
   <div class="card" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
     <div class="muted">
+      {% if view.manual_trades %}
+      Custodian file <strong>{{ view.custodian_as_of }}</strong>
+      ({{ 'today' if view.staleness_days == 0 else view.staleness_days ~ 'd old' }})
+      + <strong>{{ view.manual_trades }} manual trade{{ 's' if view.manual_trades != 1 }}</strong> to {{ view.as_of }}
+      {% else %}
       Snapshot <strong>{{ view.as_of }}</strong>
       ({{ 'today' if view.staleness_days == 0 else view.staleness_days ~ 'd old' }})
+      {% endif %}
       &middot; prices
       {% if view.cache_age_seconds is none %}<strong class="age-stale">never fetched</strong>
       {% elif view.cache_age_seconds < 900 %}<strong class="age-fresh">{{ (view.cache_age_seconds/60)|round|int }} min ago</strong>

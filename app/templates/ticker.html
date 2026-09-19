@@ -38,6 +38,8 @@
 {% if saved %}<div class="flash flash-ok">Thesis note saved.</div>{% endif %}
 {% if review %}<div class="flash flash-ok">{{ review }}</div>{% endif %}
 {% if review_err %}<div class="flash flash-err">{{ review_err }}</div>{% endif %}
+{% if trade %}<div class="flash flash-ok">{{ trade }}</div>{% endif %}
+{% if trade_err %}<div class="flash flash-err">{{ trade_err }}</div>{% endif %}
 
 <div class="split">
   {# Position context #}
@@ -80,6 +82,56 @@
     {% else %}<p class="muted">Fetch fundamentals to populate.</p>{% endif %}
   </div>
 </div>
+
+{# Record a single-ticker trade #}
+{% if d.has_snapshot %}
+<div class="card" id="trade">
+  <h2>Record a trade <span class="muted" style="font-size:12px;font-weight:400">— updates holdings until the next custodian file</span></h2>
+  <form method="post" action="/ticker/{{ d.ticker }}/trades" class="review-form"
+        onsubmit="var s=this.side.value, u=this.units.value; return confirm((s==='BUY'?'Buy ':'Sell ')+u+' {{ d.ticker }}?')">
+    <div class="review-fields">
+      <label>Side
+        <select name="side">
+          <option value="BUY">Buy</option>
+          <option value="SELL">Sell</option>
+        </select>
+      </label>
+      <label>Units <input type="text" name="units" required placeholder="{{ 'e.g. 100 or all' if pos else 'e.g. 100' }}"></label>
+      <label>Price <input type="text" name="price" placeholder="{{ d.current_price|money if d.current_price else 'live' }}" title="Leave blank to use the live price"></label>
+      <label>Trade date <input type="date" name="trade_date" value="{{ today }}"></label>
+      <label class="grow">Why (optional — also saved to the review log) <input type="text" name="note" style="width:100%;text-align:left" placeholder="e.g. trimming into strength after the guide"></label>
+    </div>
+    <div class="actions">
+      <label class="small" style="display:inline-flex;gap:6px;align-items:center;font-weight:400">
+        <input type="checkbox" name="adjust_cash" value="1" checked> Adjust USD cash by units × price
+      </label>
+      <button class="btn btn-primary" style="margin-left:auto">Record trade</button>
+    </div>
+    <p class="hint">Saved as a manual snapshot on top of the latest holdings. Buys re-blend the average cost; sells keep it. A custodian file for the same date replaces it.</p>
+  </form>
+
+  {% if d.trades %}
+  <table style="margin-top:12px">
+    <thead><tr><th>Date</th><th>Side</th><th class="num">Units</th><th class="num">Price</th><th>Note</th><th></th></tr></thead>
+    <tbody>
+    {% for row in d.trades %}{% set t = row.trade %}
+      <tr>
+        <td>{{ row.as_of }}</td>
+        <td><span class="chip {{ 'add' if t.side == 'BUY' else 'trim' }}">{{ t.side }}</span></td>
+        <td class="num">{{ t.units|qty }}</td>
+        <td class="num">{{ t.price|money }} <span class="small">{{ t.price_source }}</span></td>
+        <td class="small">{{ t.note or '' }}{% if not t.adjust_cash %} <span title="cash not adjusted">· no cash</span>{% endif %}</td>
+        <td class="num">{% if row.undoable %}
+          <form method="post" action="/ticker/{{ d.ticker }}/trades/{{ t.id }}/undo" style="margin:0"
+                onsubmit="return confirm('Undo this trade?')"><button class="btn-link">undo</button></form>
+        {% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endif %}
 
 {# Price chart with change markers #}
 {% if d.chart %}

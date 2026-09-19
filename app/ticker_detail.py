@@ -28,6 +28,7 @@ from app.models import (
 )
 from app.positions import build_positions
 from app.reviews import STANCES, ReviewRow, list_reviews
+from app.trades import TradeRow, list_trades
 
 CHART_W = 720
 CHART_H = 200
@@ -107,6 +108,8 @@ class TickerDetail:
     reviews: list[ReviewRow] = field(default_factory=list)
     current_price: Decimal | None = None
     stances: tuple[str, ...] = STANCES
+    trades: list[TradeRow] = field(default_factory=list)
+    has_snapshot: bool = False
 
 
 def get_ticker_detail(session: Session, ticker: str) -> TickerDetail:
@@ -162,6 +165,8 @@ def get_ticker_detail(session: Session, ticker: str) -> TickerDetail:
         if q is not None and q.ok and q.price is not None:
             detail.current_price = Decimal(q.price)
     detail.reviews = list_reviews(session, ticker, detail.current_price)
+    detail.trades = list_trades(session, ticker)
+    detail.has_snapshot = pv is not None
 
     detail.chart = _build_chart(session, ticker, detail.changes, detail.reviews)
     detail.derived = _derived(detail, position)

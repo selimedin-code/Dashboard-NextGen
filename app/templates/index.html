@@ -26,7 +26,12 @@
   {% else %}{% set ac, al = 'age-fresh', ('current' if staleness_days == 0 else staleness_days ~ 'd old') %}{% endif %}
   <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:-4px 0 12px">
     <p class="muted" style="margin:0">
+      {% if positions and positions.manual_trades %}
+      Custodian file <strong>{{ positions.custodian_as_of }}</strong> <span class="{{ ac }}">({{ al }})</span>
+      + {{ positions.manual_trades }} manual trade{{ 's' if positions.manual_trades != 1 }} ·
+      {% else %}
       Snapshot <strong>{{ latest.as_of }}</strong> <span class="{{ ac }}">({{ al }})</span> ·
+      {% endif %}
       {% if positions and positions.cache_age_seconds is not none %}
         prices {% if positions.cache_age_seconds < 900 %}<span class="age-fresh">{{ (positions.cache_age_seconds/60)|round|int }} min ago</span>
         {% elif positions.cache_age_seconds < 86400 %}<span class="age-warn">{{ (positions.cache_age_seconds/3600)|round(1) }} h ago</span>

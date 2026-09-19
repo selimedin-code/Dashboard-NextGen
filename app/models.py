@@ -59,6 +59,10 @@ class Snapshot(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     notes: Mapped[str | None] = mapped_column(Text)
+    # "upload" = a custodian file (source of truth); "manual" = the previous
+    # snapshot with recorded trades applied (see app/trades.py).
+    source: Mapped[str] = mapped_column(Text, nullable=False, default="upload",
+                                        server_default="upload")
 
     holdings: Mapped[list[HoldingSnapshot]] = relationship(
         back_populates="snapshot", cascade="all, delete-orphan"
@@ -512,3 +516,28 @@ class ReviewAttachment(Base):
     )
 
     review: Mapped[ReviewLog] = relationship(back_populates="attachments")
+
+
+class ManualTrade(Base):
+    """A single-ticker trade entered by hand between custodian files. Each one
+    belongs to a manual snapshot, whose holdings are rebuilt as: previous
+    snapshot + its trades replayed in id order. A custodian file uploaded for the
+    same date replaces the manual snapshot (and, by cascade, these rows)."""
+
+    __tablename__ = "manual_trades"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    snapshot_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("snapshots.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    ticker: Mapped[str] = mapped_column(Text, nullable=False)
+    raw_ticker: Mapped[str] = mapped_column(Text, nullable=False)
+    side: Mapped[str] = mapped_column(Text, nullable=False)          # BUY | SELL
+    units: Mapped[float] = mapped_column(Money, nullable=False)
+    price: Mapped[float] = mapped_column(Money, nullable=False)
+    price_source: Mapped[str] = mapped_column(Text, nullable=False)  # manual | live | cached
+    adjust_cash: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

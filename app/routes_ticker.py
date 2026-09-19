@@ -18,6 +18,7 @@ from app.db import get_session
 from app.fundamentals import refresh_ticker
 from app.models import Security
 from app import reviews as rv
+from app import trades as tr
 from app.ticker_detail import get_ticker_detail
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -37,13 +38,16 @@ def ticker_view(
     saved: str | None = None,
     review: str | None = None,
     review_err: str | None = None,
+    trade: str | None = None,
+    trade_err: str | None = None,
     session: Session = Depends(get_session),
 ):
     detail = get_ticker_detail(session, ticker.upper())
     return templates.TemplateResponse(
         request, "ticker.html",
         {"d": detail, "refreshed": refreshed, "saved": saved,
-         "review": review, "review_err": review_err, "today": date.today().isoformat()},
+         "review": review, "review_err": review_err, "trade": trade, "trade_err": trade_err,
+         "today": date.today().isoformat()},
     )
 
 
@@ -179,3 +183,57 @@ def attachment_download(ticker: str, attachment_id: int, session: Session = Depe
         headers={"Content-Disposition":
                  f"{disp}; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(att.filename)}"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Single-ticker trades (manual snapshot on top of the custodian file)
+# ---------------------------------------------------------------------------
+
+
+def _trade_back(ticker: str, *, ok: str | None = None, err: str | None = None) -> RedirectResponse:
+    q = f"trade={quote(ok)}" if ok else f"trade_err={quote(err or '')}"
+    return RedirectResponse(url=f"/ticker/{ticker}?{q}#trade",
+                            status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/ticker/{ticker}/trades")
+def trade_record(
+    ticker: str,
+    side: str = Form(""),
+    units: str = Form(""),
+    price: str = Form(""),
+    trade_date: str = Form(""),
+    adjust_cash: str = Form(""),
+    note: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    ticker = ticker.upper()
+    try:
+        d = date.fromisoformat(trade_date) if trade_date.strip() else date.today()
+    except ValueError:
+        return _trade_back(ticker, err=f"Bad date '{trade_date}'.")
+    try:
+        r = tr.record_trade(session, ticker, side=side, units_raw=units, price_raw=price,
+                            trade_date=d, adjust_cash=bool(adjust_cash), note=note)
+    except (tr.TradeError, rv.ReviewError) as exc:
+        session.rollback()
+        return _trade_back(ticker, err=str(exc))
+    t = r.trade
+    msg = (f"{t.side.title()} {tr.fmt_units(t.units)} @ {t.price:,.2f} ({t.price_source}) "
+           f"recorded for {d}. Units {tr.fmt_units(r.units_before)} → {tr.fmt_units(r.units_after)}")
+    if r.avg_cost_after is not None:
+        msg += f", avg cost {r.avg_cost_after:,.2f}"
+    if t.adjust_cash and r.cash_after is not None:
+        msg += f"; cash {r.cash_after:,.2f}"
+    return _trade_back(ticker, ok=msg + ".")
+
+
+@router.post("/ticker/{ticker}/trades/{trade_id}/undo")
+def trade_undo(ticker: str, trade_id: int, session: Session = Depends(get_session)):
+    ticker = ticker.upper()
+    try:
+        tr.undo_trade(session, ticker, trade_id)
+    except tr.TradeError as exc:
+        session.rollback()
+        return _trade_back(ticker, err=str(exc))
+    return _trade_back(ticker, ok="Trade undone.")

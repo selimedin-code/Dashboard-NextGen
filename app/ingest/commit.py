@@ -64,9 +64,12 @@ def commit_snapshot(
             continue
         _upsert_security(session, h, as_of, pillar_assignments.get(h.ticker))
 
-    # Phase 2: rebuild the change history in the same transaction. Cheap, and
-    # correct even when this snapshot lands between two existing ones.
+    # Manual-trade snapshots are derived from their predecessor, so re-derive any
+    # that sit after this file. Then rebuild the change history in the same
+    # transaction — cheap, and correct even when this snapshot lands mid-series.
     session.flush()
+    from app.trades import rebuild_manual_snapshots
+    rebuild_manual_snapshots(session)
     rebuild_changes(session, commit=False)
 
     session.commit()

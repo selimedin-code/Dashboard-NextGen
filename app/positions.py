@@ -52,6 +52,10 @@ class PositionsView:
     cache_age_seconds: float | None
     header: dict = field(default_factory=dict)
     unpriced: list[str] = field(default_factory=list)
+    # Staleness is measured from the last custodian file; manual trades on top
+    # (app/trades.py) are counted, never allowed to make the book look fresh.
+    custodian_as_of: date | None = None
+    manual_trades: int = 0
 
 
 def build_positions(session: Session) -> PositionsView | None:
@@ -145,9 +149,15 @@ def build_positions(session: Session) -> PositionsView | None:
     rows.sort(key=lambda r: (r.market_value is None, -(r.market_value or ZERO)))
     pillars = sorted({r.pillar for r in rows if r.pillar})
 
+    from app.trades import provenance
+    prov = provenance(session)
+    fresh_as_of = prov.custodian_as_of or latest.as_of
+
     return PositionsView(
         as_of=latest.as_of,
-        staleness_days=(date.today() - latest.as_of).days,
+        staleness_days=(date.today() - fresh_as_of).days,
+        custodian_as_of=prov.custodian_as_of,
+        manual_trades=prov.manual_trades,
         rows=rows,
         pillars=pillars,
         cache_age_seconds=cache_age_seconds(session),

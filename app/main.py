@@ -163,8 +163,9 @@ def home(
                  "now": datetime.now(timezone.utc)}
 
     if latest is not None:
-        ctx["staleness_days"] = (date.today() - latest.as_of).days
         ctx["positions"] = build_positions(session)
+        ctx["staleness_days"] = (ctx["positions"].staleness_days if ctx["positions"]
+                                 else (date.today() - latest.as_of).days)
         ctx["exposure"] = build_exposure(session)
         ctx["perf"] = build_performance(session)
         sig = build_signals(session)
