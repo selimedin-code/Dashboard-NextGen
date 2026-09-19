@@ -187,12 +187,12 @@
       <button class="btn" style="padding:3px 10px" title="Fetch QQQ/SMH/SPY and every pillar ETF">Refresh benchmarks</button>
     </form>
     <div class="change-counts">
-      {% for k, lbl in {'ytd':'YTD','3m':'3M','1y':'1Y'}.items() %}
+      {% for k, lbl in v.pillar_periods.items() %}
         <a href="/performance?pperiod={{ k }}#pillars" class="ct {{ 'ct-open' if v.pillar_period == k else '' }}" style="text-decoration:none">{{ lbl }}</a>
       {% endfor %}
     </div>
   </div>
-  {% set plbl = {'ytd':'YTD','3m':'3M','1y':'1Y'}[v.pillar_period] %}
+  {% set plbl = v.pillar_periods[v.pillar_period] %}
   <table style="margin-top:10px">
     <thead><tr>
       <th>Pillar</th>

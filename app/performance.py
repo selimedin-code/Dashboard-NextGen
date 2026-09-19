@@ -37,7 +37,7 @@ FUND_COLOR = "#141414"
 
 # Windows for the pillar-vs-ETF comparison. Stock histories hold ~20 months
 # (fundamentals.HISTORY_KEEP), so nothing longer than 1Y is reliable.
-PILLAR_PERIODS = {"ytd": "YTD", "3m": "3M", "1y": "1Y"}
+PILLAR_PERIODS = {"1m": "1M", "3m": "3M", "ytd": "YTD", "1y": "1Y"}   # button order
 
 CHART_W = 900
 CHART_H = 380
@@ -200,6 +200,8 @@ def pillar_etf_symbols(session: Session) -> list[str]:
 def period_start(key: str, today: date) -> date:
     """Start of a comparison window; returns are measured from the last close on
     or before this date (so YTD starts from the prior year's final close)."""
+    if key == "1m":
+        return today - timedelta(days=30)
     if key == "3m":
         return today - timedelta(days=91)
     if key == "1y":
@@ -288,6 +290,7 @@ class PerformanceView:
     benchmarks_cached: bool = False
     kpis: dict = field(default_factory=dict)
     pillar_period: str = "ytd"
+    pillar_periods: dict = field(default_factory=lambda: dict(PILLAR_PERIODS))
     pillar_period_start: date | None = None
     pillar_period_end: str | None = None
 

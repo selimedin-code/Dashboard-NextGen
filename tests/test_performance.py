@@ -288,6 +288,17 @@ def test_pillar_period_windows(session):
     assert build_performance(session, pillar_period="bogus").pillar_period == "ytd"
 
 
+def test_pillar_1m_window(session):
+    from app.performance import period_start
+    assert period_start("1m", date(2026, 9, 19)) == date(2026, 8, 20)
+    _seed_pillar_book(session)
+    v = build_performance(session, pillar_period="1m", today=date(2026, 9, 19))
+    semis = {r["pillar"]: r for r in v.by_pillar}["Semis"]
+    # last close on/before 2026-08-20 is the 2025-12-31 point in this sparse fixture
+    assert semis["pillar_return"] == Decimal(500) / Decimal(300) - 1
+    assert list(v.pillar_periods) == ["1m", "3m", "ytd", "1y"]
+
+
 def test_pillar_etfs_included_in_refresh(session):
     from app.performance import pillar_etf_symbols
     _seed_pillar_book(session)
