@@ -31,7 +31,7 @@ from app.providers.fmp import FMPClient
 
 ZERO = Decimal("0")
 
-BENCH = {"QQQ": "#3167D6", "BLEND": "#B8912F", "SPY": "#8C8C8C"}   # display colors
+BENCH = {"POLICY": "#1F8A5B", "QQQ": "#3167D6", "BLEND": "#B8912F", "SPY": "#8C8C8C"}   # display colors
 BENCH_SYMBOLS = ["QQQ", "SMH", "SPY"]
 FUND_COLOR = "#141414"
 
@@ -176,6 +176,9 @@ def refresh_benchmarks(session: Session, *, client: FMPClient | None = None) -> 
     finally:
         if owns:
             client.close()
+    # Benchmark prices feed the policy leg of the attribution periods.
+    from app.attribution import safe_rebuild
+    safe_rebuild(session)
     session.commit()
     return status
 
@@ -293,6 +296,8 @@ class PerformanceView:
     pillar_periods: dict = field(default_factory=lambda: dict(PILLAR_PERIODS))
     pillar_period_start: date | None = None
     pillar_period_end: str | None = None
+    policy: "Policy | None" = None
+    policy_start: str | None = None      # first date of the policy series
 
 
 def build_performance(session: Session, pillar_period: str = "ytd",
@@ -301,6 +306,8 @@ def build_performance(session: Session, pillar_period: str = "ytd",
     qqq, smh, spy = _series(session, "QQQ"), _series(session, "SMH"), _series(session, "SPY")
     blend = _blend_series(qqq, smh)
     benchmarks_cached = bool(qqq and spy)
+    policy = load_policy(session)
+    pol = policy_series(session, policy) if policy.ok else []
 
     view = PerformanceView(
         nav_points=navs, has_fund_return=len(navs) >= 2,
@@ -310,6 +317,8 @@ def build_performance(session: Session, pillar_period: str = "ytd",
     if pillar_period not in PILLAR_PERIODS:
         pillar_period = "ytd"
     view.pillar_period = pillar_period
+    view.policy = policy
+    view.policy_start = pol[0][0] if pol else None
 
     # --- fund level ---
     if navs:
@@ -321,15 +330,17 @@ def build_performance(session: Session, pillar_period: str = "ytd",
         if len(navs) >= 2:
             view.fund_return = (Decimal(navs[-1].nav_per_share) / Decimal(navs[0].nav_per_share)) - 1
 
-        named = {"QQQ": qqq, "BLEND": blend, "SPY": spy}
+        named = {"POLICY": pol, "QQQ": qqq, "BLEND": blend, "SPY": spy}
         for key, series in named.items():
             v0 = _value_at(series, base_iso, mode="after")
             v1 = _value_at(series, end_iso, mode="before")
             view.returns[key] = ((v1 / v0) - 1) if (v0 and v1) else None
 
-        # Graph: fund vs QQQ and SPY (QQQ/SMH blend intentionally left off the chart).
-        view.chart = _build_chart(navs, {"QQQ": qqq, "SPY": spy}, base_iso)
-        view.kpis = compute_nav_kpis(navs, ref=qqq, ref_label="QQQ")
+        # Graph: fund vs the policy benchmark, with QQQ and SPY as secondary
+        # context (QQQ/SMH blend intentionally left off the chart).
+        view.chart = _build_chart(navs, {"POLICY": pol, "QQQ": qqq, "SPY": spy}, base_iso)
+        view.kpis = (compute_nav_kpis(navs, ref=pol, ref_label="Policy") if pol
+                     else compute_nav_kpis(navs, ref=qqq, ref_label="QQQ"))
 
     # --- position level (works with the current snapshot alone) ---
     pv = build_positions(session)
@@ -585,19 +596,375 @@ def _build_chart(navs: list[NavPoint], benches: dict, base_iso: str) -> dict:
 
     lines = []
     colors = {"FUND": FUND_COLOR, **BENCH}
-    labels = {"FUND": "Fund NAV", "QQQ": "QQQ", "BLEND": "QQQ/SMH", "SPY": "SPY"}
+    labels = {"FUND": "Fund NAV", "POLICY": "Policy benchmark", "QQQ": "QQQ", "BLEND": "QQQ/SMH", "SPY": "SPY"}
     sparse_nav = len(nav_pts) <= 24
-    for key in ("QQQ", "BLEND", "SPY", "FUND"):
+    for key in ("QQQ", "BLEND", "SPY", "POLICY", "FUND"):
         pts = plotted.get(key)
         if not pts:
             continue
         poly = " ".join(f"{x:.1f},{y_of(r):.1f}" for x, r in pts)
         lines.append({
             "name": labels[key], "color": colors[key], "points": poly,
-            "is_fund": key == "FUND",
+            "is_fund": key == "FUND", "is_policy": key == "POLICY",
             "markers": [(round(x, 1), y_of(r)) for x, r in pts] if (key == "FUND" and sparse_nav) else [],
         })
 
     return {"w": CHART_W, "h": CHART_H,
             "pad": {"l": PAD_L, "r": PAD_R, "t": PAD_T, "b": PAD_B},
             "lines": lines, "ygrid": ygrid, "xgrid": xgrid, "lo": lo, "hi": hi}
+
+
+# ---------------------------------------------------------------------------
+# Policy benchmark — the line the fund is measured against.
+#
+#   benchmark = sum over pillars of target_weight x pillar benchmark
+#
+# A pillar's benchmark is its primary ETF. A pillar with no primary ETF (P03)
+# is an equal-weight basket of its own held names, falling back to its alternate
+# ETF on days before any of those names has price history. Targets are
+# normalized over the pillars that have one, so a book whose targets sum to 97%
+# is still a fully-invested benchmark (the gap is shown, never hidden).
+# The daily series is rebalanced to target every day.
+# ---------------------------------------------------------------------------
+
+PRICE_MAX_GAP_DAYS = 7      # a close older than this is not "the price on" a date
+
+
+@dataclass
+class PolicyComponent:
+    pillar_id: str
+    name: str
+    raw_weight: Decimal
+    weight: Decimal                 # normalized so components sum to 1
+    etf: str | None = None          # the pillar's ETF (None for a basket)
+    basket: list[str] = field(default_factory=list)
+    fallback: str | None = None     # alt ETF behind a basket
+
+    @property
+    def label(self) -> str:
+        if self.etf:
+            return self.etf
+        if self.basket:
+            return f"EW basket ({len(self.basket)})" + (f" / {self.fallback}" if self.fallback else "")
+        return self.fallback or "—"
+
+
+@dataclass
+class Policy:
+    components: list[PolicyComponent]
+    raw_total: Decimal              # sum of targets as entered (1 = 100%)
+
+    @property
+    def ok(self) -> bool:
+        return bool(self.components)
+
+
+def _pillar_names(session: Session, snapshot_id: int | None = None) -> dict[str, list[str]]:
+    """pillar_id -> held tickers (latest snapshot unless one is given)."""
+    from app.ingest.normalize import CASH_TICKER
+    from app.models import HoldingSnapshot, Security, Snapshot
+
+    if snapshot_id is None:
+        snap = session.execute(select(Snapshot).order_by(Snapshot.as_of.desc()).limit(1)).scalar_one_or_none()
+        if snap is None:
+            return {}
+        snapshot_id = snap.id
+    held = session.execute(
+        select(HoldingSnapshot.ticker).where(HoldingSnapshot.snapshot_id == snapshot_id,
+                                             HoldingSnapshot.ticker != CASH_TICKER)
+    ).scalars().all()
+    pid = {s.ticker: s.pillar_id for s in session.execute(select(Security)).scalars().all()}
+    out: dict[str, list[str]] = {}
+    for t in held:
+        if pid.get(t):
+            out.setdefault(pid[t], []).append(t)
+    return {k: sorted(v) for k, v in out.items()}
+
+
+def load_policy(session: Session, snapshot_id: int | None = None) -> Policy:
+    pillars = session.execute(select(Pillar).order_by(Pillar.id)).scalars().all()
+    targeted = [p for p in pillars if p.target_weight is not None and Decimal(p.target_weight) > 0]
+    raw_total = sum((Decimal(p.target_weight) for p in targeted), ZERO)
+    names = _pillar_names(session, snapshot_id) if targeted else {}
+    comps = []
+    for p in targeted:
+        raw = Decimal(p.target_weight)
+        c = PolicyComponent(pillar_id=p.id, name=p.name, raw_weight=raw,
+                            weight=raw / raw_total if raw_total else ZERO)
+        if p.primary_etf:
+            c.etf = p.primary_etf.strip().upper()
+        else:
+            c.basket = names.get(p.id, [])
+            c.fallback = p.alt_etf.strip().upper() if p.alt_etf else None
+        comps.append(c)
+    return Policy(components=comps, raw_total=raw_total)
+
+
+def _price_near(series: list[tuple[str, Decimal]], iso: str,
+                max_gap: int = PRICE_MAX_GAP_DAYS) -> Decimal | None:
+    """Last close on/before `iso`, but only if it is at most `max_gap` days old."""
+    prev = None
+    for d, c in series:
+        if d <= iso:
+            prev = (d, c)
+        else:
+            break
+    if prev is None:
+        return None
+    if (date.fromisoformat(iso) - date.fromisoformat(prev[0])).days > max_gap:
+        return None
+    return prev[1]
+
+
+def component_return(comp: PolicyComponent, a_iso: str, b_iso: str, hist,
+                     basket: list[str] | None = None) -> Decimal | None:
+    """Pillar benchmark return over [a, b]. `hist(sym)` returns a price series.
+    A basket is equal-weighted buy-and-hold over the window."""
+    def one(sym):
+        s = hist(sym)
+        v0, v1 = _price_near(s, a_iso), _price_near(s, b_iso)
+        return (v1 / v0 - 1) if (v0 and v1) else None
+
+    if comp.etf:
+        return one(comp.etf)
+    names = comp.basket if basket is None else basket
+    rets = [r for r in (one(t) for t in names) if r is not None]
+    if rets:
+        return sum(rets, ZERO) / len(rets)
+    return one(comp.fallback) if comp.fallback else None
+
+
+def _ffill(series: list[tuple[str, Decimal]], calendar: list[str]) -> list[Decimal | None]:
+    out, i, last = [], 0, None
+    for d in calendar:
+        while i < len(series) and series[i][0] <= d:
+            last = series[i][1]
+            i += 1
+        out.append(last)
+    return out
+
+
+def policy_series(session: Session, policy: Policy | None = None
+                  ) -> list[tuple[str, Decimal]]:
+    """Daily policy-benchmark index (starts at 1), rebalanced to target daily.
+    Starts on the first day every component has a price."""
+    policy = policy or load_policy(session)
+    if not policy.ok:
+        return []
+    cache: dict[str, list] = {}
+
+    def hist(sym):
+        if sym not in cache:
+            cache[sym] = _series(session, sym)
+        return cache[sym]
+
+    syms = set()
+    for c in policy.components:
+        syms.update([c.etf] if c.etf else c.basket + ([c.fallback] if c.fallback else []))
+    calendar = sorted({d for s in syms if s for d, _ in hist(s)})
+    if len(calendar) < 2:
+        return []
+    filled = {s: _ffill(hist(s), calendar) for s in syms if s}
+
+    def day_ret(c: PolicyComponent, i: int) -> Decimal | None:
+        def r(sym):
+            p0, p1 = filled[sym][i - 1], filled[sym][i]
+            return (p1 / p0 - 1) if (p0 and p1) else None
+        if c.etf:
+            return r(c.etf)
+        rets = [x for x in (r(t) for t in c.basket) if x is not None]
+        if rets:
+            return sum(rets, ZERO) / len(rets)
+        return r(c.fallback) if c.fallback else None
+
+    out: list[tuple[str, Decimal]] = []
+    idx = Decimal("1")
+    for i in range(1, len(calendar)):
+        rets = [day_ret(c, i) for c in policy.components]
+        if any(x is None for x in rets):
+            if out:              # a gap after the start: carry the level forward
+                out.append((calendar[i], idx))
+            continue
+        if not out:
+            out.append((calendar[i - 1], idx))
+        idx = idx * (1 + sum((c.weight * x for c, x in zip(policy.components, rets)), ZERO))
+        out.append((calendar[i], idx))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Trading alpha — what the sizing and timing decisions were worth.
+#
+# For each snapshot pair A -> B, the counterfactual is A's holdings frozen (no
+# trades) and marked at B's prices. Each change between the files is then worth
+#
+#     units_delta x (price at B - trade price)
+#
+# i.e. what the trade added versus not trading. Summed over DISCRETIONARY
+# changes, that is trading alpha; FLOW_DRIVEN (pro-rata subscription/redemption
+# deployment) and AMBIGUOUS changes are shown apart. Trade prices: a recorded
+# manual trade's price; else the blended-cost identity (OPEN = the new cost,
+# ADD = implied price) when it falls inside the period's close range; else the
+# period's average close — an estimate, and labelled as one. Wide intervals hide
+# round trips, which is why cadence matters (risk_config.SNAPSHOT_STALE_DAYS).
+# ---------------------------------------------------------------------------
+
+_RANGE_TOL = Decimal("0.02")
+
+
+@dataclass
+class TradeEffect:
+    ticker: str
+    change_type: str
+    classification: str | None
+    units_delta: Decimal
+    trade_price: Decimal
+    price_basis: str               # recorded | cost | implied | avg close (est.)
+    end_price: Decimal
+    effect: Decimal                # $ vs not trading
+    effect_pct: Decimal            # vs fund value at A
+
+
+@dataclass
+class TradingPeriod:
+    from_id: int
+    to_id: int
+    from_date: date
+    to_date: date
+    days: int
+    wide: bool                     # interval past the monthly minimum
+    start_value: Decimal
+    frozen_return: Decimal | None
+    nav_return: Decimal | None
+    discretionary: Decimal = ZERO
+    flow: Decimal = ZERO
+    ambiguous: Decimal = ZERO
+    effects: list[TradeEffect] = field(default_factory=list)
+    unpriced: list[str] = field(default_factory=list)
+
+    @property
+    def explained(self) -> Decimal:
+        return self.discretionary + self.flow + self.ambiguous
+
+    @property
+    def residual(self) -> Decimal | None:
+        """NAV return not explained by frozen holdings + trades: fees, round
+        trips inside the interval, trade-price estimation error."""
+        if self.nav_return is None or self.frozen_return is None:
+            return None
+        return self.nav_return - self.frozen_return - self.explained
+
+
+def _nav_near(navs: list[NavPoint], d: date) -> Decimal | None:
+    prev = None
+    for p in navs:
+        if p.as_of <= d:
+            prev = p
+        else:
+            break
+    if prev is None or (d - prev.as_of).days > PRICE_MAX_GAP_DAYS:
+        return None
+    return Decimal(prev.nav_per_share)
+
+
+def _window_closes(series, a_iso: str, b_iso: str) -> list[Decimal]:
+    return [c for d, c in series if a_iso <= d <= b_iso]
+
+
+def trading_alpha(session: Session) -> list[TradingPeriod]:
+    from app.ingest.normalize import CASH_TICKER
+    from app.models import Change, HoldingSnapshot, ManualTrade, Snapshot
+    from app.risk_config import SNAPSHOT_STALE_DAYS
+
+    snaps = session.execute(select(Snapshot).order_by(Snapshot.as_of)).scalars().all()
+    if len(snaps) < 2:
+        return []
+    navs = list_nav_points(session)
+    cache: dict[str, list] = {}
+
+    def hist(sym):
+        if sym not in cache:
+            cache[sym] = _series(session, sym)
+        return cache[sym]
+
+    def holdings(sid):
+        return {h.ticker: h for h in session.execute(
+            select(HoldingSnapshot).where(HoldingSnapshot.snapshot_id == sid)).scalars().all()}
+
+    out: list[TradingPeriod] = []
+    for a, b in zip(snaps, snaps[1:]):
+        a_iso, b_iso = a.as_of.isoformat(), b.as_of.isoformat()
+        ha = holdings(a.id)
+        days = (b.as_of - a.as_of).days
+        tp = TradingPeriod(from_id=a.id, to_id=b.id, from_date=a.as_of, to_date=b.as_of,
+                           days=days, wide=days > SNAPSHOT_STALE_DAYS,
+                           start_value=ZERO, frozen_return=None, nav_return=None)
+
+        cash = Decimal(ha[CASH_TICKER].units) if CASH_TICKER in ha else ZERO
+        v0 = v1 = cash
+        for t, h in ha.items():
+            if t == CASH_TICKER:
+                continue
+            p0, p1 = _price_near(hist(t), a_iso), _price_near(hist(t), b_iso)
+            if p0 is None or p1 is None:
+                tp.unpriced.append(t)
+                continue
+            v0 += Decimal(h.units) * p0
+            v1 += Decimal(h.units) * p1
+        tp.start_value = v0
+        if v0:
+            tp.frozen_return = v1 / v0 - 1
+        n0, n1 = _nav_near(navs, a.as_of), _nav_near(navs, b.as_of)
+        if n0 and n1:
+            tp.nav_return = n1 / n0 - 1
+
+        recorded: dict[str, list[ManualTrade]] = {}
+        if b.source == "manual":
+            for mt in session.execute(select(ManualTrade).where(ManualTrade.snapshot_id == b.id)).scalars():
+                recorded.setdefault(mt.ticker, []).append(mt)
+
+        changes = session.execute(select(Change).where(
+            Change.from_snapshot == a.id, Change.to_snapshot == b.id,
+            Change.change_type != "HOLD", Change.ticker != CASH_TICKER)).scalars().all()
+        for ch in changes:
+            delta = Decimal(ch.units_delta or 0)
+            if delta == 0:
+                continue
+            s = hist(ch.ticker)
+            end = _price_near(s, b_iso)
+            window = _window_closes(s, a_iso, b_iso)
+            avg = (sum(window, ZERO) / len(window)) if window else None
+            price, basis = None, None
+            mts = recorded.get(ch.ticker)
+            if mts:
+                units = sum((Decimal(m.units) for m in mts), ZERO)
+                price = sum((Decimal(m.units) * Decimal(m.price) for m in mts), ZERO) / units
+                basis = "recorded"
+            elif ch.change_type in ("OPEN", "ADD"):
+                cand = Decimal(ch.cost_after) if ch.change_type == "OPEN" else (
+                    Decimal(ch.implied_price) if ch.implied_price is not None else None)
+                in_range = (cand is not None and cand > 0 and (not window or
+                            min(window) * (1 - _RANGE_TOL) <= cand <= max(window) * (1 + _RANGE_TOL)))
+                if in_range:
+                    price, basis = cand, ("cost" if ch.change_type == "OPEN" else "implied")
+            if price is None and avg is not None:
+                price, basis = avg, "avg close (est.)"
+            if price is None or end is None:
+                tp.unpriced.append(ch.ticker)
+                continue
+            effect = delta * (end - price)
+            pct = (effect / v0) if v0 else ZERO
+            tp.effects.append(TradeEffect(
+                ticker=ch.ticker, change_type=ch.change_type, classification=ch.classification,
+                units_delta=delta, trade_price=price, price_basis=basis,
+                end_price=end, effect=effect, effect_pct=pct))
+            if ch.classification == "FLOW_DRIVEN":
+                tp.flow += pct
+            elif ch.classification == "AMBIGUOUS":
+                tp.ambiguous += pct
+            else:
+                tp.discretionary += pct
+        tp.effects.sort(key=lambda e: e.effect)
+        tp.unpriced = sorted(set(tp.unpriced))
+        out.append(tp)
+    return out

@@ -173,3 +173,11 @@ footer,.footer{font-size:12px;color:var(--dim);margin-top:22px;line-height:1.7;t
 .btn-link{background:none;border:0;padding:0;color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
 .btn-link:hover{color:var(--accent)}
 #pillars{scroll-margin-top:80px}
+
+/* Journal: expected outcome / invalidation / verdict on a review. */
+.review-call{display:grid;gap:3px;margin-top:6px;padding:6px 10px;border-left:3px solid #7B4FD6;background:var(--neutral-bg);border-radius:0 6px 6px 0}
+.review-call b{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-right:4px}
+.verdict-form{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.verdict-form label{display:inline-flex;gap:4px;align-items:center;font-size:12px;font-weight:600;cursor:pointer}
+.verdict-form input[type=text]{border:1px solid var(--line);border-radius:6px;padding:4px 8px;font:inherit;font-size:12px;min-width:180px}
+.eff-bar{display:inline-block;height:8px;border-radius:2px;vertical-align:middle}

@@ -47,7 +47,8 @@ def ticker_view(
         request, "ticker.html",
         {"d": detail, "refreshed": refreshed, "saved": saved,
          "review": review, "review_err": review_err, "trade": trade, "trade_err": trade_err,
-         "today": date.today().isoformat(), "max_upload_mb": rv.MAX_FILE_BYTES // rv.MB},
+         "today": date.today().isoformat(), "today_date": date.today(),
+         "verdicts": rv.VERDICTS, "max_upload_mb": rv.MAX_FILE_BYTES // rv.MB},
     )
 
 
@@ -116,17 +117,23 @@ async def review_create(
     price: str = Form(""),
     stance: str = Form(""),
     review_date: str = Form(""),
+    expected_outcome: str = Form(""),
+    horizon_date: str = Form(""),
+    invalidation: str = Form(""),
     files: list[UploadFile] = File(default=[]),
     session: Session = Depends(get_session),
 ):
     ticker = ticker.upper()
     try:
         d = date.fromisoformat(review_date) if review_date.strip() else None
+        h = date.fromisoformat(horizon_date) if horizon_date.strip() else None
     except ValueError:
-        return _back(ticker, err=f"Bad date '{review_date}'.")
+        return _back(ticker, err=f"Bad date '{review_date or horizon_date}'.")
     try:
         r = rv.create_review(session, ticker, note=note, price_raw=price, stance=stance,
-                             review_date=d, files=await _read(files))
+                             review_date=d, files=await _read(files),
+                             expected_outcome=expected_outcome, horizon_date=h,
+                             invalidation=invalidation)
     except rv.ReviewError as exc:
         session.rollback()
         return _back(ticker, err=str(exc))

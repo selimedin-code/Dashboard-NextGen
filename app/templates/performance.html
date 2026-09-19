@@ -9,7 +9,11 @@
 
 {# ---- Fund level ---- #}
 <div class="card">
-  <h2>Fund level — NAV per share vs benchmarks</h2>
+  <h2>Fund level — NAV per share vs the policy benchmark</h2>
+  {% if v.policy and not v.policy.ok %}
+    <div class="flash flash-warn" style="margin-top:4px">No policy benchmark yet — set pillar target weights on
+      <a href="/pillars#targets">Pillars</a>. Until then the fund is shown against QQQ/SPY only.</div>
+  {% endif %}
 
   {% if not v.nav_points %}
     <p class="muted">No NAV points yet. Add your custodian's per-share NAV below — that
@@ -43,7 +47,7 @@
         {% endfor %}
         {# series #}
         {% for ln in v.chart.lines %}
-          <polyline fill="none" stroke="{{ ln.color }}" stroke-width="{{ '1.9' if ln.is_fund else '1.1' }}"
+          <polyline fill="none" stroke="{{ ln.color }}" stroke-width="{{ '1.9' if ln.is_fund else ('1.6' if ln.is_policy else '1.1') }}"
                     vector-effect="non-scaling-stroke" stroke-linejoin="round" points="{{ ln.points }}"/>
           {% for m in ln.markers %}<circle cx="{{ m[0] }}" cy="{{ m[1] }}" r="3" fill="{{ ln.color }}"/>{% endfor %}
         {% endfor %}
@@ -57,12 +61,20 @@
     {% endif %}
 
     <table style="margin-top:14px">
-      <thead><tr><th>Return since {{ v.base_date }}{% if v.has_fund_return %} → {{ v.window_end }}{% endif %}</th><th class="num">Fund</th><th class="num">QQQ</th><th class="num">SPY</th></tr></thead>
+      <thead><tr><th>Return since {{ v.base_date }}{% if v.has_fund_return %} → {{ v.window_end }}{% endif %}</th><th class="num">Fund</th>
+        {% if v.policy and v.policy.ok %}<th class="num">Policy</th><th class="num">Fund − policy</th>{% endif %}
+        <th class="num muted">QQQ</th><th class="num muted">SPY</th></tr></thead>
       <tbody>
         <tr>
           <td class="muted">Total return</td>
           <td class="num sym {{ 'pos' if v.fund_return and v.fund_return>0 else 'neg' if v.fund_return and v.fund_return<0 else '' }}">
             {{ v.fund_return|pct if v.fund_return is not none else '—' }}</td>
+          {% if v.policy and v.policy.ok %}
+            {% set pr = v.returns.get('POLICY') %}
+            <td class="num {{ 'pos' if pr and pr>0 else 'neg' if pr and pr<0 else '' }}">{{ pr|pct if pr is not none else '—' }}</td>
+            {% set ex = (v.fund_return - pr) if (v.fund_return is not none and pr is not none) else none %}
+            <td class="num sym {{ 'pos' if ex and ex>0 else 'neg' if ex and ex<0 else '' }}">{{ ex|pct if ex is not none else '—' }}</td>
+          {% endif %}
           {% for k in ['QQQ','SPY'] %}
             {% set r = v.returns.get(k) %}
             <td class="num {{ 'pos' if r and r>0 else 'neg' if r and r<0 else '' }}">{{ r|pct if r is not none else '—' }}</td>
@@ -70,6 +82,12 @@
         </tr>
       </tbody>
     </table>
+    {% if v.policy and v.policy.ok %}
+      <p class="hint">Policy = Σ pillar target × pillar benchmark, rebalanced daily
+        ({% for c in v.policy.components %}{{ c.weight|pct_plain }} {{ c.label }}{{ ', ' if not loop.last }}{% endfor %}).
+        {% if v.policy_start and v.base_date and v.policy_start > v.base_date|string %}<span class="age-warn">Policy history starts {{ v.policy_start }} — its return is measured from there.</span>{% endif %}
+        <a href="/attribution">Attribution &rarr;</a></p>
+    {% endif %}
     {% if not v.has_fund_return %}
       <p class="hint">Only one NAV point so far — fund return needs a second date. Benchmarks are shown since {{ v.base_date }} for context.</p>
     {% endif %}

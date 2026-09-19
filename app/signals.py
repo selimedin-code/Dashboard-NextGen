@@ -11,6 +11,9 @@ Signal families:
   earnings      — a holding reports within the next two weeks
   concentration — single-name / top-10 / pillar weight breaches
   news          — genuinely recent headlines (awareness only)
+  budget        — risk-budget limits (AI-complex cap, monthly-loss trigger)
+  journal       — reviews past their horizon, waiting for a verdict
+  cadence       — the custodian file is due / past the monthly minimum
 """
 
 from __future__ import annotations
@@ -53,18 +56,24 @@ class SignalsView:
     earnings: list[Signal] = field(default_factory=list)
     concentration: list[Signal] = field(default_factory=list)
     news: list[Signal] = field(default_factory=list)
+    budget: list[Signal] = field(default_factory=list)
+    journal: list[Signal] = field(default_factory=list)
+    cadence: list[Signal] = field(default_factory=list)
     fundamentals_coverage: int = 0     # held tickers with fundamentals cached
     held_count: int = 0
     total: int = 0
 
     def sections(self):
         return [
+            ("Risk budget", "budget", self.budget),
+            ("Snapshot cadence", "cadence", self.cadence),
             ("Outsized moves", "moves", self.moves),
             ("Trend (moving averages)", "trend", self.trend),
             ("Stops", "stops", self.stops),
             ("Earnings ahead", "earnings", self.earnings),
             ("Concentration", "concentration", self.concentration),
             ("Recent news", "news", self.news),
+            ("Journal — verdicts due", "journal", self.journal),
         ]
 
 
@@ -168,6 +177,36 @@ def build_signals(session: Session) -> SignalsView:
             continue
         view.news.append(Signal("news", n.ticker, "info", n.title or "",
             (n.source or "") + (f" · {n.published_at:%m-%d}" if n.published_at else "")))
+
+    # --- risk budget ---
+    from app.risk_budget import build_risk_budget
+    for rule in build_risk_budget(session, exposure=ev).rules:
+        if rule.status not in ("breach", "warn"):
+            continue
+        lim = f"limit {rule.limit * 100:.0f}%"
+        view.budget.append(Signal("budget", "AI COMPLEX" if rule.key == "ai_complex" else "FUND NAV",
+            "high" if rule.status == "breach" else "warn",
+            f"{rule.label}: {rule.value * 100:.1f}% ({lim})"
+            + (" — BREACHED" if rule.status == "breach" else " — near limit"),
+            rule.action if rule.status == "breach" else rule.detail))
+
+    # --- snapshot cadence (measured from the last custodian file) ---
+    from app.risk_config import SNAPSHOT_DUE_DAYS, SNAPSHOT_STALE_DAYS
+    age = pv.staleness_days
+    if age > SNAPSHOT_DUE_DAYS:
+        view.cadence.append(Signal("cadence", "CUSTODIAN FILE",
+            "high" if age > SNAPSHOT_STALE_DAYS else "warn",
+            f"last custodian file {pv.custodian_as_of or pv.as_of} is {age}d old",
+            f"monthly minimum — {'past' if age > SNAPSHOT_STALE_DAYS else 'due within'} "
+            f"{SNAPSHOT_STALE_DAYS}d; wider gaps blind the trade classifier"))
+
+    # --- journal: horizons passed, verdict not yet forced ---
+    from app.reviews import build_journal
+    for row in build_journal(session).due:
+        r = row.review
+        view.journal.append(Signal("journal", r.ticker, "warn" if row.days_overdue > 7 else "info",
+            f"review {r.review_date} — horizon {r.horizon_date} passed, score it",
+            (r.expected_outcome or "")[:90]))
 
     view.total = sum(len(s) for _, _, s in view.sections())
     return view

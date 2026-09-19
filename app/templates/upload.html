@@ -4,6 +4,15 @@
 {% block content %}
 <h1 class="page-title">Upload a snapshot</h1>
 
+{% if cadence %}
+  <p class="muted" style="margin:-2px 0 12px">
+    Last custodian file <strong>{{ cadence.last }}</strong>
+    <span class="{{ snapshot_age_class(cadence.age) }}">({{ cadence.age }}d old{{ ' — past the monthly minimum' if cadence.age > SNAPSHOT_STALE_DAYS else (' — due' if cadence.age > SNAPSHOT_DUE_DAYS else '') }})</span>
+    · next one due by <strong>{{ cadence.due_by }}</strong>.
+    Monthly is the minimum: wider gaps hide round trips from the flow/discretionary classifier and blur trading alpha.
+  </p>
+{% endif %}
+
 {% if errors %}
   <div class="flash flash-err">
     <strong>Could not read the file:</strong>

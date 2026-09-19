@@ -105,6 +105,9 @@ class Pillar(Base):
     # Effective-bet key for the Risk page (see app/risk_config.py). Groups the
     # 13 pillars into ~9 macro bets; backfilled by migration a7c31e90d4f2.
     macro_bet: Mapped[str | None] = mapped_column(Text)
+    # Policy-benchmark weight (fraction of NAV). The benchmark is the sum of
+    # target_weight x pillar benchmark; NULL = not part of the policy.
+    target_weight: Mapped[float | None] = mapped_column(Numeric(8, 6))
 
 
 class Security(Base):
@@ -486,6 +489,14 @@ class ReviewLog(Base):
     price_as_of: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     stance: Mapped[str | None] = mapped_column(Text)         # ADD | HOLD | TRIM | EXIT | WATCH
     note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Closed-loop journal: what should happen by when, what would prove it
+    # wrong, and — once the horizon passes — the forced verdict.
+    expected_outcome: Mapped[str | None] = mapped_column(Text)
+    horizon_date: Mapped[date | None] = mapped_column(Date, index=True)
+    invalidation: Mapped[str | None] = mapped_column(Text)
+    scored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verdict: Mapped[str | None] = mapped_column(Text)        # RIGHT_RIGHT | RIGHT_WRONG | WRONG
+    verdict_note: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -541,3 +552,33 @@ class ManualTrade(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class AttributionPeriod(Base):
+    """Brinson attribution of one snapshot-to-snapshot period, one row per
+    segment (a pillar, plus cash and unassigned). Derived, rebuilt whole by
+    app/attribution.py whenever snapshots, targets or benchmark prices change.
+
+    Summed over a period's rows, allocation + selection + interaction equals the
+    buy-and-hold portfolio return minus the policy benchmark return."""
+
+    __tablename__ = "attribution_period"
+    __table_args__ = (
+        UniqueConstraint("from_snapshot", "to_snapshot", "pillar", name="uq_attribution_pair_pillar"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    from_snapshot: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("snapshots.id", ondelete="CASCADE"), nullable=False
+    )
+    to_snapshot: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("snapshots.id", ondelete="CASCADE"), nullable=False
+    )
+    pillar: Mapped[str] = mapped_column(Text, nullable=False)       # segment label
+    port_weight: Mapped[float] = mapped_column(Numeric(12, 8), nullable=False)
+    bench_weight: Mapped[float] = mapped_column(Numeric(12, 8), nullable=False)
+    port_return: Mapped[float | None] = mapped_column(Numeric(12, 8))
+    bench_return: Mapped[float | None] = mapped_column(Numeric(12, 8))
+    allocation: Mapped[float] = mapped_column(Numeric(12, 8), nullable=False)
+    selection: Mapped[float] = mapped_column(Numeric(12, 8), nullable=False)
+    interaction: Mapped[float] = mapped_column(Numeric(12, 8), nullable=False)

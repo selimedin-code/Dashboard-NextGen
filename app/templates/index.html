@@ -21,9 +21,11 @@
   {% set h = positions.header if positions else none %}
 
   {# Freshness line #}
-  {% if staleness_days is not none and staleness_days > 7 %}{% set ac, al = 'age-stale', 'stale — ' ~ staleness_days ~ 'd old' %}
-  {% elif staleness_days is not none and staleness_days > 3 %}{% set ac, al = 'age-warn', staleness_days ~ 'd old' %}
-  {% else %}{% set ac, al = 'age-fresh', ('current' if staleness_days == 0 else staleness_days ~ 'd old') %}{% endif %}
+  {# Cadence: monthly custodian files are the minimum (risk_config.SNAPSHOT_*_DAYS). #}
+  {% set ac = snapshot_age_class(staleness_days) %}
+  {% if staleness_days is not none and staleness_days > SNAPSHOT_STALE_DAYS %}{% set al = staleness_days ~ 'd old — past the monthly minimum, upload now' %}
+  {% elif staleness_days is not none and staleness_days > SNAPSHOT_DUE_DAYS %}{% set al = staleness_days ~ 'd old — monthly file due' %}
+  {% else %}{% set al = ('current' if staleness_days == 0 else staleness_days ~ 'd old') %}{% endif %}
   <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:-4px 0 12px">
     <p class="muted" style="margin:0">
       {% if positions and positions.manual_trades %}
@@ -60,7 +62,7 @@
       <div class="t">Performance · fund NAV{% if perf and perf.nav_points %} <span class="muted">as of {{ perf.nav_points[-1].as_of }}</span>{% endif %}</div>
       {% if perf and perf.kpis %}
         <div class="v num {{ 'pos' if perf.kpis.ytd.fund and perf.kpis.ytd.fund>0 else 'neg' if perf.kpis.ytd.fund and perf.kpis.ytd.fund<0 else '' }}">{{ perf.kpis.ytd.fund|pct if perf.kpis.ytd.fund is not none else '—' }} <span class="muted" style="font-size:12px">YTD</span></div>
-        <div class="t num">QQQ {{ perf.kpis.ytd.ref|pct if perf.kpis.ytd.ref is not none else '—' }}{% if perf.fund_return is not none %} · {{ perf.fund_return|pct }} since incep{% endif %}</div>
+        <div class="t num">{{ perf.kpis.ref_label }} {{ perf.kpis.ytd.ref|pct if perf.kpis.ytd.ref is not none else '—' }}{% if perf.fund_return is not none %} · {{ perf.fund_return|pct }} since incep{% endif %}</div>
       {% else %}
         <div class="v">—</div><div class="t">add a 2nd NAV point</div>
       {% endif %}
@@ -76,6 +78,21 @@
       <div class="t">Signals</div>
       <div class="v num">{{ signal_total }} <span class="muted" style="font-size:12px">flag{{ 's' if signal_total != 1 else '' }}</span></div>
       {% if signals %}<div class="t num">{{ signals.moves|length }} moves · {{ signals.trend|length }} trend · {{ signals.earnings|length }} earnings</div>{% endif %}
+    </a>
+
+    <a class="tile{{ ' flag' if budget and budget.breaches }}" href="/risk#budget">
+      <div class="t">Risk budget</div>
+      {% if budget %}
+        {% set nb, nw = budget.breaches|length, budget.warnings|length %}
+        <div class="v num {{ 'neg' if nb else ('' if not nw else '') }}">{% if nb %}{{ nb }} breached{% elif nw %}{{ nw }} near{% else %}ok{% endif %}</div>
+        <div class="t num">{% for r in budget.rules %}{{ 'AI cx' if r.key == 'ai_complex' else 'loss' }} {{ (r.value|pct_plain if r.key == 'ai_complex' else r.value|pct) if r.value is not none else '—' }}{{ ' · ' if not loop.last }}{% endfor %}</div>
+      {% else %}<div class="v">—</div>{% endif %}
+    </a>
+
+    <a class="tile" href="/reviews/due">
+      <div class="t">Journal</div>
+      <div class="v num {{ 'neg' if reviews_due else '' }}">{{ reviews_due or 0 }} <span class="muted" style="font-size:12px">due</span></div>
+      <div class="t">{{ 'verdicts to force' if reviews_due else 'no calls past horizon' }}</div>
     </a>
 
     <a class="tile" href="/positions">

@@ -160,3 +160,51 @@ GAUGES: dict[str, GaugeDef] = {g.key: g for g in [
 ]}
 
 GAUGE_STALE_DAYS = 3   # badge the card when the latest point is older than this
+
+
+# ---------------------------------------------------------------------------
+# Risk budget — limits, not just tripwires. Evaluated in app/risk_budget.py,
+# surfaced on the Risk page and fired on the Signals page.
+#
+# AI-complex cap: the in_ai_complex bets above, summed, as a share of NAV (the
+# whole fund incl. cash, so raising cash is a valid way back under the cap).
+# Monthly-loss trigger: the fund's NAV-per-share return month-to-date, or over
+# the trailing 30 days (which catches a loss straddling a month-end), at or
+# below the threshold means the de-risking step below is due.
+#
+# "warn" fires inside WARN_BAND of a limit so a breach is never a surprise.
+# ---------------------------------------------------------------------------
+
+AI_COMPLEX_CAP = Decimal("0.80")            # max AI-complex market value / NAV
+AI_COMPLEX_WARN_BAND = Decimal("0.03")      # warn from cap - 3pp
+MONTHLY_LOSS_TRIGGER = Decimal("-0.08")     # MTD or trailing-30d NAV return
+MONTHLY_LOSS_WARN_BAND = Decimal("0.02")    # warn from trigger + 2pp
+NAV_STALE_DAYS = 7                          # a NAV older than this can't clear the loss rule
+
+AI_COMPLEX_ACTION = (
+    "Trim AI-complex names back under the cap (start with the largest bet over its "
+    "share), or raise cash — no new AI-complex adds until back under."
+)
+DERISK_ACTION = (
+    "De-risking step: cut gross by ~10% of NAV into cash, starting with the "
+    "highest-scenario-drawdown bets; no new adds until the next monthly review."
+)
+
+
+# ---------------------------------------------------------------------------
+# Snapshot cadence. Monthly is the minimum: the FLOW/DISCRETIONARY classifier
+# and the trading-alpha counterfactual both degrade as the interval between
+# custodian files widens (round trips inside the gap are invisible).
+# ---------------------------------------------------------------------------
+
+SNAPSHOT_DUE_DAYS = 28      # amber: the monthly file is due
+SNAPSHOT_STALE_DAYS = 35    # red: past the monthly minimum
+
+
+def snapshot_age_class(days: int | None) -> str:
+    """CSS class for a custodian-file age badge: age-fresh | age-warn | age-stale."""
+    if days is None or days > SNAPSHOT_STALE_DAYS:
+        return "age-stale"
+    if days > SNAPSHOT_DUE_DAYS:
+        return "age-warn"
+    return "age-fresh"

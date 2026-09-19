@@ -57,8 +57,17 @@ def _load(d: dict) -> ParsedHolding:
 
 
 @router.get("/upload", response_class=HTMLResponse)
-def upload_form(request: Request):
-    return templates.TemplateResponse(request, "upload.html", {"today": date.today().isoformat()})
+def upload_form(request: Request, session: Session = Depends(get_session)):
+    from app.risk_config import SNAPSHOT_STALE_DAYS
+    from app.trades import provenance
+
+    last = provenance(session).custodian_as_of
+    cadence = None
+    if last is not None:
+        cadence = {"last": last, "age": (date.today() - last).days,
+                   "due_by": last + timedelta(days=SNAPSHOT_STALE_DAYS)}
+    return templates.TemplateResponse(request, "upload.html",
+                                      {"today": date.today().isoformat(), "cadence": cadence})
 
 
 @router.post("/upload", response_class=HTMLResponse)

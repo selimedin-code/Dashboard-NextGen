@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}Attribution · NextGen{% endblock %}
+
+{% macro sgn(x) -%}{{ 'pos' if x is not none and x > 0 else 'neg' if x is not none and x < 0 else '' }}{%- endmacro %}
+
+{% block content %}
+<h1 class="page-title">Attribution — tilts vs names vs trading</h1>
+{% if msg %}<div class="flash {{ 'flash-warn' if 'error' in msg else 'flash-ok' }}">{{ msg }}</div>{% endif %}
+
+{# ---- Policy benchmark ---- #}
+<div class="card">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <h2 style="margin:0">Policy benchmark</h2>
+    <form method="post" action="/attribution/rebuild" style="margin:0 0 0 auto">
+      <button class="btn" style="padding:3px 10px" title="Recompute every period from snapshots, targets and cached prices">Recompute</button>
+    </form>
+  </div>
+  {% if not policy.ok %}
+    <div class="flash flash-warn">No pillar target weights yet. Set them on <a href="/pillars#targets">Pillars</a> —
+      the benchmark (Σ target × pillar ETF) is what allocation and selection are measured against.</div>
+  {% else %}
+    <p class="muted" style="margin:6px 0 8px">Σ target × pillar benchmark, rebalanced to target. QQQ/SPY are secondary context on Performance.
+      {% if (policy.raw_total - 1)|abs > 0.0005 %}<span class="age-warn">Targets sum to {{ policy.raw_total|pct_plain }} — normalized.</span>{% endif %}</p>
+    <div class="change-counts">
+      {% for c in policy.components %}
+        <span class="ct" title="{{ c.name }}{% if c.basket %}: {{ c.basket|join(', ') }}{% endif %}"><b>{{ c.weight|pct_plain }}</b> {{ c.pillar_id }} <span class="mono">{{ c.label }}</span></span>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>
+
+{% if not periods %}
+  <div class="card">
+    <div class="empty-badge">No periods yet</div>
+    <p class="muted">Brinson attribution needs {% if not policy.ok %}policy targets and {% endif %}two or more snapshots
+      (one period = one snapshot to the next), plus price history for the holdings and pillar ETFs
+      (<em>Refresh benchmarks</em> on Performance, fundamentals refresh on Signals). Upload monthly — see cadence on the Overview.</p>
+  </div>
+{% else %}
+
+{# ---- Rollup selector + headline ---- #}
+<div class="card" id="brinson">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <h2 style="margin:0">Brinson — {{ ru.label }}</h2>
+    <div class="change-counts" style="margin-left:auto">
+      {% for x in rollups %}
+        <a href="/attribution?r={{ x.key }}#brinson" class="ct {{ 'ct-open' if x.key == ru.key else '' }}" style="text-decoration:none">{{ 'T12M' if x.key == 't12m' else x.label }}</a>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if not ru.periods %}
+    <p class="muted" style="margin-top:10px">No periods end in this window.</p>
+  {% else %}
+  <div class="prov">
+    <div><b>Portfolio (buy &amp; hold)</b><span class="v num {{ sgn(ru.port_return) }}">{{ ru.port_return|pct }}</span></div>
+    <div><b>Policy benchmark</b><span class="v num {{ sgn(ru.bench_return) }}">{{ ru.bench_return|pct }}</span></div>
+    <div><b>Allocation — tilts</b><span class="v num {{ sgn(ru.allocation) }}">{{ ru.allocation|bp }}</span></div>
+    <div><b>Selection — names</b><span class="v num {{ sgn(ru.selection) }}">{{ ru.selection|bp }}</span></div>
+    <div><b>Interaction</b><span class="v num {{ sgn(ru.interaction) }}">{{ ru.interaction|bp }}</span></div>
+  </div>
+  {% set a, s = ru.allocation|abs, ru.selection|abs %}
+  <p class="muted" style="margin:4px 0 12px">
+    {% if a * 2 > s * 3 %}Over {{ ru.label|lower }} the edge (or the damage) came mostly from the <strong>wave tilts</strong>.
+    {% elif s * 2 > a * 3 %}Over {{ ru.label|lower }} the edge (or the damage) came mostly from the <strong>names</strong>.
+    {% else %}Over {{ ru.label|lower }} tilts and names contributed on a similar scale.{% endif %}
+    {{ ru.periods|length }} period{{ 's' if ru.periods|length != 1 }}; effects add arithmetically across periods —
+    compounding residual {{ ru.linking_residual|bp }}.
+  </p>
+
+  <table>
+    <thead><tr><th>Segment</th><th class="num" title="Average actual weight at period starts">Avg weight</th><th class="num">Avg target</th>
+      <th class="num">Allocation</th><th class="num">Selection</th><th class="num">Interaction</th><th class="num">Total</th></tr></thead>
+    <tbody>
+    {% for g in ru.by_segment %}
+      <tr><td class="sym">{{ g.name }}</td>
+        <td class="num">{{ g.avg_weight|pct_plain }}</td>
+        <td class="num muted">{{ g.avg_target|pct_plain if g.avg_target else '—' }}</td>
+        <td class="num {{ sgn(g.allocation) }}">{{ g.allocation|bp }}</td>
+        <td class="num {{ sgn(g.selection) }}">{{ g.selection|bp }}</td>
+        <td class="num {{ sgn(g.interaction) }}">{{ g.interaction|bp }}</td>
+        <td class="num sym {{ sgn(g.total) }}">{{ g.total|bp }}</td></tr>
+    {% endfor %}
+    </tbody>
+    <tfoot><tr><td><b>Total</b></td><td></td><td></td>
+      <td class="num"><b>{{ ru.allocation|bp }}</b></td><td class="num"><b>{{ ru.selection|bp }}</b></td>
+      <td class="num"><b>{{ ru.interaction|bp }}</b></td><td class="num"><b>{{ ru.excess_sum|bp }}</b></td></tr></tfoot>
+  </table>
+  {% endif %}
+  <p class="hint">Allocation = (actual − target) × (pillar benchmark − policy) · Selection = target × (our names − pillar benchmark)
+    · Interaction = (actual − target) × (our names − pillar benchmark). Weights are at each period's start snapshot, returns are
+    buy-and-hold to the next snapshot. Cash and unassigned names sit outside the policy, so their whole relative return is
+    allocation (for cash, that is the cash drag). The EW-basket pillar's selection measures sizing within the pillar.</p>
+</div>
+
+<div class="card">
+  <h2>Periods</h2>
+  <table>
+    <thead><tr><th>Period</th><th class="num">Days</th><th class="num">Portfolio</th><th class="num">Policy</th><th class="num">Excess</th>
+      <th class="num">Allocation</th><th class="num">Selection</th><th class="num">Interaction</th></tr></thead>
+    <tbody>
+    {% for p in periods|reverse %}
+      <tr><td class="num"><a href="/attribution?p={{ p.to_id }}#trading">{{ p.from_date }} → {{ p.to_date }}</a></td>
+        <td class="num {{ 'age-stale' if p.days > stale_days else '' }}">{{ p.days }}</td>
+        <td class="num {{ sgn(p.port_return) }}">{{ p.port_return|pct }}</td>
+        <td class="num {{ sgn(p.bench_return) }}">{{ p.bench_return|pct }}</td>
+        <td class="num sym {{ sgn(p.excess) }}">{{ p.excess|bp }}</td>
+        <td class="num {{ sgn(p.allocation) }}">{{ p.allocation|bp }}</td>
+        <td class="num {{ sgn(p.selection) }}">{{ p.selection|bp }}</td>
+        <td class="num {{ sgn(p.interaction) }}">{{ p.interaction|bp }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{# ---- Trading alpha ---- #}
+<div class="card" id="trading">
+  <h2>Trading alpha — what sizing &amp; timing were worth</h2>
+  {% if not trading %}
+    <p class="muted">Needs two or more snapshots. Each period compares the prior snapshot's holdings frozen (no trades) with what was actually done.</p>
+  {% else %}
+  <div class="prov">
+    <div><b>Discretionary{{ ' · T12M' if tsum.n }}</b><span class="v num {{ sgn(tsum.discretionary) }}">{{ tsum.discretionary|bp }}</span></div>
+    <div><b>Flow-driven</b><span class="v num {{ sgn(tsum.flow) }}">{{ tsum.flow|bp }}</span></div>
+    <div><b>Ambiguous</b><span class="v num {{ sgn(tsum.ambiguous) }}">{{ tsum.ambiguous|bp }}</span></div>
+    <div class="{{ 'age-stale' if tsum.wide else '' }}"><b>Wide intervals</b><span class="v num">{{ tsum.wide }} / {{ tsum.n }}</span></div>
+  </div>
+  <p class="muted" style="margin:4px 0 10px">Discretionary is the number that decides how much discretion to allow between reviews.
+    Each change is worth units traded × (price at the next snapshot − trade price), vs fund value at the period start.</p>
+  <table>
+    <thead><tr><th>Period</th><th class="num">Days</th><th class="num" title="Prior snapshot's holdings, no trades">Frozen</th>
+      <th class="num" title="Fund price change between the snapshot dates">Actual (NAV)</th>
+      <th class="num">Discretionary</th><th class="num">Flow</th><th class="num">Ambiguous</th>
+      <th class="num" title="NAV − frozen − trades: fees, round trips inside the gap, trade-price estimates">Unexplained</th><th></th></tr></thead>
+    <tbody>
+    {% for t in trading|reverse %}
+      <tr {% if sel and t.to_id == sel.to_id %}style="background:var(--accent-bg)"{% endif %}>
+        <td class="num">{{ t.from_date }} → {{ t.to_date }}</td>
+        <td class="num">{% if t.wide %}<span class="age-stale" title="Past the {{ stale_days }}-day monthly minimum: round trips inside the gap are invisible and the classifier degrades">{{ t.days }} ⚠</span>{% else %}{{ t.days }}{% endif %}</td>
+        <td class="num {{ sgn(t.frozen_return) }}">{{ t.frozen_return|pct if t.frozen_return is not none else '—' }}</td>
+        <td class="num {{ sgn(t.nav_return) }}">{{ t.nav_return|pct if t.nav_return is not none else '—' }}</td>
+        <td class="num sym {{ sgn(t.discretionary) }}">{{ t.discretionary|bp }}</td>
+        <td class="num {{ sgn(t.flow) }}">{{ t.flow|bp }}</td>
+        <td class="num {{ sgn(t.ambiguous) }}">{{ t.ambiguous|bp }}</td>
+        <td class="num muted">{{ t.residual|bp if t.residual is not none else '—' }}</td>
+        <td class="num"><a href="/attribution?p={{ t.to_id }}#trading">trades</a></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  {% if sel %}
+  <h2 style="font-size:12px;margin-top:16px">Changes {{ sel.from_date }} → {{ sel.to_date }}</h2>
+  {% if sel.effects %}
+  <table>
+    <thead><tr><th>Ticker</th><th>Change</th><th>Class</th><th class="num">Units</th><th class="num">Trade price</th><th>Basis</th>
+      <th class="num">Price at {{ sel.to_date }}</th><th class="num">Worth vs not trading</th><th class="num">bp</th></tr></thead>
+    <tbody>
+    {% for e in sel.effects %}
+      <tr><td class="mono sym"><a href="/ticker/{{ e.ticker }}">{{ e.ticker }}</a></td>
+        <td><span class="chip {{ e.change_type|lower }}">{{ e.change_type }}</span></td>
+        <td class="small {{ 'muted' if e.classification != 'DISCRETIONARY' else '' }}">{{ (e.classification or '')|replace('_', ' ')|lower }}</td>
+        <td class="num">{{ e.units_delta|qty }}</td>
+        <td class="num">{{ e.trade_price|money }}</td>
+        <td class="small {{ 'age-warn' if 'est' in e.price_basis else 'muted' }}">{{ e.price_basis }}</td>
+        <td class="num">{{ e.end_price|money }}</td>
+        <td class="num {{ sgn(e.effect) }}">{{ e.effect|money }}</td>
+        <td class="num sym {{ sgn(e.effect_pct) }}">{{ e.effect_pct|bp }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">No priced trades in this period.</p>{% endif %}
+  {% if sel.unpriced %}<p class="hint age-stale">Left out for lack of price history: {{ sel.unpriced|join(', ') }}.</p>{% endif %}
+  {% endif %}
+  <p class="hint">Trade price: a recorded manual trade's price; else the blended-cost identity (OPEN = new cost, ADD = implied price)
+    when it sits inside the period's close range; else the period's average close (<span class="age-warn">est.</span> — always the case for
+    trims and closes, whose sale price the snapshots can't recover). Actual (NAV) needs a fund price within 7 days of each snapshot date.</p>
+  {% endif %}
+</div>
+{% endblock %}

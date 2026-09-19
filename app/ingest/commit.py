@@ -71,6 +71,8 @@ def commit_snapshot(
     from app.trades import rebuild_manual_snapshots
     rebuild_manual_snapshots(session)
     rebuild_changes(session, commit=False)
+    from app.attribution import safe_rebuild
+    safe_rebuild(session)
 
     session.commit()
     return snapshot

@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Journal · NextGen{% endblock %}
+
+{% macro sgn(x) -%}{{ 'pos' if x is not none and x > 0 else 'neg' if x is not none and x < 0 else '' }}{%- endmacro %}
+{% macro vchip(v) -%}<span class="chip {{ {'RIGHT_RIGHT':'open','RIGHT_WRONG':'trim','WRONG':'close'}[v] }}">{{ verdicts[v] }}</span>{%- endmacro %}
+
+{% block content %}
+<h1 class="page-title">Journal — verdicts due</h1>
+{% if msg %}<div class="flash flash-ok">{{ msg }}</div>{% endif %}
+{% if err %}<div class="flash flash-err">{{ err }}</div>{% endif %}
+
+{% set sc = j.scorecard %}
+<div class="prov">
+  <div class="{{ 'age-stale' if j.due else 'age-fresh' }}"><b>Due for a verdict</b><span class="v num">{{ j.due|length }}</span></div>
+  <div><b>Open calls</b><span class="v num">{{ j.upcoming|length }}</span></div>
+  <div><b>Scored</b><span class="v num">{{ sc.n }}</span></div>
+  <div><b>Right, right reason</b><span class="v num">{{ sc.skill_rate|pct_plain if sc.skill_rate is not none else '—' }}</span></div>
+  <div><b>Right at all</b><span class="v num">{{ sc.hit_rate|pct_plain if sc.hit_rate is not none else '—' }}</span></div>
+</div>
+<p class="muted" style="margin:0 0 12px">A review with an <em>expected outcome</em> and a <em>horizon</em> (set on the ticker page) lands here once the
+  horizon passes. The entry price and today's price are shown; the verdict is yours to force. "Right, wrong reason" counts as luck, not skill.</p>
+
+<div class="card">
+  <h2>Due now</h2>
+  {% if not j.due %}
+    <p class="muted">Nothing due — every call past its horizon has been scored.</p>
+  {% else %}
+  <table>
+    <thead><tr><th>Ticker</th><th>Reviewed</th><th>Stance</th><th>The call</th><th class="num">Entry</th><th class="num">Now</th><th class="num">Move</th><th>Verdict</th></tr></thead>
+    <tbody>
+    {% for row in j.due %}{% set r = row.review %}
+      <tr>
+        <td class="mono sym"><a href="/ticker/{{ r.ticker }}#reviews">{{ r.ticker }}</a></td>
+        <td class="num small">{{ r.review_date }}<br><span class="{{ 'age-stale' if row.days_overdue > 7 else 'age-warn' }}">horizon {{ r.horizon_date }}{% if row.days_overdue %} · {{ row.days_overdue }}d over{% endif %}</span></td>
+        <td>{% if r.stance %}<span class="chip {{ {'ADD':'add','HOLD':'hold','TRIM':'trim','EXIT':'close','WATCH':'open'}[r.stance] }}">{{ r.stance }}</span>{% endif %}</td>
+        <td class="small" style="max-width:340px"><b>Expect</b> {{ r.expected_outcome }}
+          {% if r.invalidation %}<br><span class="muted"><b>Wrong if</b> {{ r.invalidation }}</span>{% endif %}
+          {% if r.note %}<br><span class="muted" title="{{ r.note }}">{{ r.note[:120] }}{{ '…' if r.note|length > 120 }}</span>{% endif %}</td>
+        <td class="num">{{ r.price|money if r.price is not none else '—' }}</td>
+        <td class="num">{{ row.current_price|money if row.current_price is not none else '—' }}</td>
+        <td class="num sym {{ sgn(row.since_pct) }}">{{ row.since_pct|pct if row.since_pct is not none else '—' }}</td>
+        <td>
+          <form method="post" action="/reviews/{{ r.id }}/score" class="verdict-form">
+            {% for k, lbl in verdicts.items() %}
+              <label><input type="radio" name="verdict" value="{{ k }}" required> {{ lbl }}</label>
+            {% endfor %}
+            <input type="text" name="note" placeholder="why (optional)">
+            <button class="btn btn-primary" style="padding:4px 12px">Score</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+
+{% if sc.n %}
+<div class="card">
+  <h2>Scorecard by stance</h2>
+  <table style="max-width:560px">
+    <thead><tr><th>Stance</th>{% for k, lbl in verdicts.items() %}<th class="num">{{ lbl }}</th>{% endfor %}</tr></thead>
+    <tbody>
+    {% for st, c in sc.by_stance|dictsort %}
+      <tr><td>{{ st }}</td>{% for k in verdicts %}<td class="num">{{ c[k] }}</td>{% endfor %}</tr>
+    {% endfor %}
+    </tbody>
+    <tfoot><tr><td><b>All</b></td>{% for k in verdicts %}<td class="num"><b>{{ sc.counts[k] }}</b></td>{% endfor %}</tr></tfoot>
+  </table>
+</div>
+{% endif %}
+
+{% if j.upcoming %}
+<div class="card">
+  <h2>Open calls <span class="muted" style="font-size:12px;font-weight:400">— horizon still ahead</span></h2>
+  <table>
+    <thead><tr><th>Ticker</th><th>Reviewed</th><th>Horizon</th><th>The call</th><th class="num">Entry</th><th class="num">Move so far</th></tr></thead>
+    <tbody>
+    {% for row in j.upcoming %}{% set r = row.review %}
+      <tr><td class="mono sym"><a href="/ticker/{{ r.ticker }}#reviews">{{ r.ticker }}</a></td>
+        <td class="num small">{{ r.review_date }}</td>
+        <td class="num small">{{ r.horizon_date }} <span class="muted">({{ -row.days_overdue }}d)</span></td>
+        <td class="small">{{ r.expected_outcome }}{% if r.invalidation %}<br><span class="muted"><b>Wrong if</b> {{ r.invalidation }}</span>{% endif %}</td>
+        <td class="num">{{ r.price|money if r.price is not none else '—' }}</td>
+        <td class="num {{ sgn(row.since_pct) }}">{{ row.since_pct|pct if row.since_pct is not none else '—' }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if j.scored %}
+<div class="card">
+  <h2>Scored</h2>
+  <table>
+    <thead><tr><th>Ticker</th><th>Reviewed → horizon</th><th>The call</th><th>Verdict</th><th class="num">Move since entry</th><th></th></tr></thead>
+    <tbody>
+    {% for row in j.scored %}{% set r = row.review %}
+      <tr><td class="mono sym"><a href="/ticker/{{ r.ticker }}#reviews">{{ r.ticker }}</a></td>
+        <td class="num small">{{ r.review_date }} → {{ r.horizon_date }}</td>
+        <td class="small">{{ r.expected_outcome }}</td>
+        <td>{{ vchip(r.verdict) }}{% if r.verdict_note %}<br><span class="small muted">{{ r.verdict_note }}</span>{% endif %}<br><span class="small muted">scored {{ r.scored_at.date() }}</span></td>
+        <td class="num {{ sgn(row.since_pct) }}">{{ row.since_pct|pct if row.since_pct is not none else '—' }}</td>
+        <td class="num"><form method="post" action="/reviews/{{ r.id }}/unscore" style="margin:0"><button class="btn-link" title="Clear the verdict">re-open</button></form></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

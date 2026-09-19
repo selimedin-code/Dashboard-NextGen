@@ -53,6 +53,44 @@
   </form>
 {% endif %}
 
+{# Risk budget — limits, not just tripwires #}
+{% if budget %}
+<div class="card" id="budget">
+  <h2>Risk budget
+    {% if budget.breaches %}<span class="chip close" style="margin-left:6px">{{ budget.breaches|length }} breached</span>
+    {% elif budget.warnings %}<span class="chip trim" style="margin-left:6px">near limit</span>{% endif %}</h2>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;align-items:stretch">
+    {% for rule in budget.rules %}
+    {% set css = {'breach':'age-stale','warn':'age-warn','ok':'age-fresh'}.get(rule.status, 'muted') %}
+    <div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+        <b style="font-size:12px">{{ rule.label }}</b>
+        {% if rule.status == 'breach' %}<span class="chip close">BREACHED</span>
+        {% elif rule.status == 'warn' %}<span class="chip trim">near limit</span>
+        {% elif rule.status == 'ok' %}<span class="chip">ok</span>
+        {% else %}<span class="chip hold">no data</span>{% endif %}
+      </div>
+      <div style="display:flex;align-items:baseline;gap:10px;margin-top:4px">
+        <span class="v num {{ css }}" style="font-size:1.6em;font-weight:800">{{ rule.value|pct_plain if rule.key == 'ai_complex' and rule.value is not none else (rule.value|pct if rule.value is not none else '—') }}</span>
+        <span class="muted small">{{ 'cap' if rule.key == 'ai_complex' else 'trigger' }} {{ rule.limit|pct_plain if rule.key == 'ai_complex' else rule.limit|pct }}
+          {% if rule.headroom is not none %} · headroom {{ rule.headroom|pct_plain if rule.headroom >= 0 else rule.headroom|pct }}{% endif %}</span>
+      </div>
+      {% if rule.key == 'ai_complex' and rule.value is not none %}
+        {% set frac = [rule.value, 1]|min %}
+        <div class="pbar" style="margin-top:6px;position:relative"><i style="width:{{ frac * 100 }}%;{{ 'background:var(--neg)' if rule.status == 'breach' else ('background:var(--gold)' if rule.status == 'warn' else '') }}"></i>
+          <span style="position:absolute;left:{{ rule.limit * 100 }}%;top:-3px;bottom:-3px;border-left:2px solid var(--ink, #141414)" title="cap"></span></div>
+      {% endif %}
+      <p class="small muted" style="margin:6px 0 0">{{ rule.detail }}</p>
+      <p class="small" style="margin:4px 0 0">{% if rule.status == 'breach' %}<b class="age-stale">Action:</b>{% else %}<span class="muted">If breached:</span>{% endif %} {{ rule.action }}</p>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="hint">Limits live in <span class="mono">app/risk_config.py</span> next to the bets (agreed policy, versioned).
+    AI complex is measured against NAV incl. cash, so raising cash also restores headroom. The loss trigger uses the fund price
+    (MTD and trailing 30 days, whichever is worse). Breaches and near-limits also fire on Signals.</p>
+</div>
+{% endif %}
+
 {% if view is none %}
   <div class="card">
     <div class="empty-badge">No data yet</div>
@@ -95,7 +133,7 @@
   <p class="muted" style="margin:-2px 0 12px">
     AI-capex complex = compute supply + hyperscalers + AI software + DC power/neoclouds/nuclear,
     as % of invested equity — four layers of one macro bet (hyperscaler capex durability).
-    Snapshot {{ view.as_of }}{% if view.staleness_days > 0 %} · {{ view.staleness_days }}d old{% endif %}.
+    Snapshot {{ view.as_of }}{% if view.staleness_days > 0 %} · <span class="{{ snapshot_age_class(view.staleness_days) }}">{{ view.staleness_days }}d old</span>{% endif %}.
     {% if view.unpriced %}<span class="age-stale">Excludes {{ view.unpriced|length }} unpriced: {{ view.unpriced|join(', ') }}.</span>{% endif %}
   </p>
 

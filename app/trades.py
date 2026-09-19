@@ -239,6 +239,8 @@ def record_trade(session: Session, ticker: str, *, side: str, units_raw: str,
 
     snap.notes = _summary(session, snap.id)
     rebuild_changes(session, commit=False)
+    from app.attribution import safe_rebuild
+    safe_rebuild(session)
     session.commit()
     cash = book.get(CASH_TICKER)
     return TradeResult(trade=trade, snapshot=snap, units_before=held,
@@ -267,6 +269,8 @@ def undo_trade(session: Session, ticker: str, trade_id: int) -> None:
         _rebuild_one(session, snap, strict=True)
         snap.notes = _summary(session, snap.id)
     rebuild_changes(session, commit=False)
+    from app.attribution import safe_rebuild
+    safe_rebuild(session)
     session.commit()
 
 

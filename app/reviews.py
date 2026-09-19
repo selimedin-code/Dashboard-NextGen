@@ -24,6 +24,14 @@ from app.providers.fmp import FMPClient
 
 STANCES = ("ADD", "HOLD", "TRIM", "EXIT", "WATCH")
 
+# The forced verdict once a horizon passes. "Right for the wrong reason" is its
+# own bucket: it scores as luck, not skill.
+VERDICTS = {
+    "RIGHT_RIGHT": "Right, right reason",
+    "RIGHT_WRONG": "Right, wrong reason",
+    "WRONG": "Wrong",
+}
+
 MB = 1024 * 1024
 # Report PDFs from the Claude skills run 35-45 MB. The whole upload is held in
 # memory on a 512 MB Render instance, so cap the request total as well.
@@ -119,7 +127,9 @@ def _attach(review: ReviewLog, files: list[UploadedFile]) -> None:
 
 def create_review(session: Session, ticker: str, *, note: str, price_raw: str | None,
                   stance: str | None, review_date: date | None,
-                  files: list[UploadedFile], client: FMPClient | None = None) -> ReviewLog:
+                  files: list[UploadedFile], client: FMPClient | None = None,
+                  expected_outcome: str | None = None, horizon_date: date | None = None,
+                  invalidation: str | None = None) -> ReviewLog:
     note = (note or "").strip()
     files = validate_files(files)
     if not note and not files:
@@ -127,6 +137,13 @@ def create_review(session: Session, ticker: str, *, note: str, price_raw: str | 
     stance = (stance or "").strip().upper() or None
     if stance is not None and stance not in STANCES:
         raise ReviewError(f"Unknown stance '{stance}'.")
+    expected_outcome = (expected_outcome or "").strip() or None
+    invalidation = (invalidation or "").strip() or None
+    if bool(expected_outcome) != (horizon_date is not None):
+        raise ReviewError("An expected outcome needs a horizon date, and a horizon needs an "
+                          "expected outcome — that pair is what gets scored later.")
+    if horizon_date is not None and horizon_date <= (review_date or date.today()):
+        raise ReviewError("The horizon must be after the review date.")
 
     price = parse_price(price_raw)
     if price is not None:
@@ -137,6 +154,7 @@ def create_review(session: Session, ticker: str, *, note: str, price_raw: str | 
     review = ReviewLog(
         ticker=ticker, review_date=review_date or date.today(), note=note,
         stance=stance, price=price, price_source=source, price_as_of=as_of,
+        expected_outcome=expected_outcome, horizon_date=horizon_date, invalidation=invalidation,
     )
     _attach(review, files)
     session.add(review)
@@ -194,3 +212,95 @@ def list_reviews(session: Session, ticker: str, current_price: Decimal | None) -
             since = Decimal(current_price) / Decimal(r.price) - 1
         rows.append(ReviewRow(review=r, since_pct=since))
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Closed loop: reviews whose horizon has passed must be scored.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class DueRow:
+    review: ReviewLog
+    current_price: Decimal | None
+    since_pct: Decimal | None
+    days_overdue: int
+
+
+def score_review(session: Session, review_id: int, verdict: str, note: str | None = None) -> ReviewLog:
+    review = session.get(ReviewLog, review_id)
+    if review is None:
+        raise ReviewError("Review not found.")
+    verdict = (verdict or "").strip().upper()
+    if verdict not in VERDICTS:
+        raise ReviewError("Pick a verdict.")
+    if review.horizon_date is None:
+        raise ReviewError("This review has no expected outcome to score.")
+    review.verdict = verdict
+    review.verdict_note = (note or "").strip() or None
+    review.scored_at = datetime.now(timezone.utc)
+    session.commit()
+    return review
+
+
+def unscore_review(session: Session, review_id: int) -> None:
+    review = session.get(ReviewLog, review_id)
+    if review is None:
+        raise ReviewError("Review not found.")
+    review.verdict = review.verdict_note = review.scored_at = None
+    session.commit()
+
+
+def _with_prices(session: Session, reviews, today: date) -> list[DueRow]:
+    quotes = {q.ticker: q for q in session.execute(select(QuoteCache)).scalars().all()}
+    rows = []
+    for r in reviews:
+        q = quotes.get(r.ticker)
+        cur = Decimal(q.price) if q is not None and q.ok and q.price is not None else None
+        since = (cur / Decimal(r.price) - 1) if (cur and r.price) else None
+        overdue = (today - r.horizon_date).days if r.horizon_date else 0
+        rows.append(DueRow(review=r, current_price=cur, since_pct=since, days_overdue=overdue))
+    return rows
+
+
+def due_count(session: Session, today: date | None = None) -> int:
+    from sqlalchemy import func
+    today = today or date.today()
+    return session.execute(select(func.count()).select_from(ReviewLog).where(
+        ReviewLog.horizon_date <= today, ReviewLog.scored_at.is_(None))).scalar_one()
+
+
+@dataclass
+class JournalView:
+    due: list[DueRow]
+    upcoming: list[DueRow]
+    scored: list[DueRow]
+    scorecard: dict
+
+
+def build_journal(session: Session, today: date | None = None) -> JournalView:
+    today = today or date.today()
+    base = select(ReviewLog).where(ReviewLog.horizon_date.is_not(None))
+    due = session.execute(base.where(ReviewLog.horizon_date <= today, ReviewLog.scored_at.is_(None))
+                          .order_by(ReviewLog.horizon_date, ReviewLog.id)).scalars().all()
+    upcoming = session.execute(base.where(ReviewLog.horizon_date > today, ReviewLog.scored_at.is_(None))
+                               .order_by(ReviewLog.horizon_date, ReviewLog.id)).scalars().all()
+    scored = session.execute(base.where(ReviewLog.scored_at.is_not(None))
+                             .order_by(ReviewLog.scored_at.desc())).scalars().all()
+
+    counts = {k: 0 for k in VERDICTS}
+    by_stance: dict[str, dict[str, int]] = {}
+    for r in scored:
+        counts[r.verdict] = counts.get(r.verdict, 0) + 1
+        st = by_stance.setdefault(r.stance or "—", {k: 0 for k in VERDICTS})
+        st[r.verdict] = st.get(r.verdict, 0) + 1
+    n = len(scored)
+    scorecard = {
+        "n": n, "counts": counts,
+        "skill_rate": (Decimal(counts["RIGHT_RIGHT"]) / n) if n else None,
+        "hit_rate": (Decimal(counts["RIGHT_RIGHT"] + counts["RIGHT_WRONG"]) / n) if n else None,
+        "by_stance": by_stance,
+    }
+    return JournalView(due=_with_prices(session, due, today),
+                       upcoming=_with_prices(session, upcoming, today),
+                       scored=_with_prices(session, scored, today), scorecard=scorecard)

@@ -1,7 +1,9 @@
-"""Pillars view: assign every holding to the 11-pillar framework.
+"""Pillars view: assign every holding to the 13-pillar framework, and set the
+policy-benchmark target weight per pillar.
 
 Inline edit the held tickers, or bulk-upload a Ticker→Pillar file. Both write to
-`securities.pillar`, which the exposure and position views group by.
+`securities.pillar`, which the exposure and position views group by. Targets
+live on `pillars.target_weight` and drive the policy benchmark + attribution.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.auth import require_auth
 from app.db import get_session
 from app.ingest.pillars import PillarParseError, apply_pillars, parse_pillar_file
-from app.ingest.seed import SeedFormatError, detect_kind, import_from_csv
+from app.ingest.seed import SeedFormatError, detect_kind, import_from_csv, parse_target_weight
 from app.models import HoldingSnapshot, Pillar, Security, Snapshot
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -59,14 +61,23 @@ def _page_context(session: Session, **extra) -> dict:
         pid = secs[t].pillar_id if t in secs else None
         if pid:
             held_by_pid[pid] = held_by_pid.get(pid, 0) + 1
+    # Current weight per pillar (share of the whole fund) next to its target.
+    current: dict[str, object] = {}
+    from app.exposure import build_exposure
+    ev = build_exposure(session)
+    if ev is not None:
+        current = {pe.name: pe.fund_weight for pe in ev.pillars}
     taxonomy = [{
         "id": p.id, "name": p.name, "primary_etf": p.primary_etf,
         "alt_etf": p.alt_etf, "caveat": p.caveat, "held": held_by_pid.get(p.id, 0),
+        "target": p.target_weight, "current": current.get(p.name),
     } for p in pillars]
+    target_total = sum((t["target"] for t in taxonomy if t["target"] is not None), 0)
 
     ctx = {
         "rows": rows, "existing_pillars": existing_pillars,
-        "taxonomy": taxonomy,
+        "taxonomy": taxonomy, "target_total": target_total,
+        "cash_weight": ev.cash_pct if ev is not None else None,
         "held_count": len(rows), "unassigned": unassigned,
     }
     ctx.update(extra)
@@ -92,6 +103,32 @@ async def pillars_save(request: Request, session: Session = Depends(get_session)
     return RedirectResponse(url="/pillars?saved=1", status_code=status.HTTP_303_SEE_OTHER)
 
 
+@router.post("/pillars/targets")
+async def pillars_targets(request: Request, session: Session = Depends(get_session)):
+    """Save policy target weights (entered in %). Blank clears a target."""
+    form = await request.form()
+    pillars = {p.id: p for p in session.execute(select(Pillar)).scalars().all()}
+    try:
+        for k, v in form.items():
+            if not k.startswith("target__") or k[len("target__"):] not in pillars:
+                continue
+            raw = str(v).strip()
+            # The form is in percent: a bare "0.5" means 0.5%, not 50%.
+            if raw and not raw.endswith("%"):
+                raw += "%"
+            pillars[k[len("target__"):]].target_weight = parse_target_weight(raw)
+    except SeedFormatError as exc:
+        session.rollback()
+        return templates.TemplateResponse(
+            request, "pillars.html", _page_context(session, upload_error=str(exc)),
+            status_code=status.HTTP_400_BAD_REQUEST)
+    session.flush()
+    from app.attribution import safe_rebuild
+    safe_rebuild(session)
+    session.commit()
+    return RedirectResponse(url="/pillars?targets=1#targets", status_code=status.HTTP_303_SEE_OTHER)
+
+
 @router.post("/pillars/upload", response_class=HTMLResponse)
 async def pillars_upload(
     request: Request,
@@ -115,6 +152,9 @@ async def pillars_upload(
     try:
         if is_seed:
             summary = import_from_csv(session, filename, data)
+            session.flush()
+            from app.attribution import safe_rebuild
+            safe_rebuild(session)
             session.commit()
             if summary["kind"] == "pillars":
                 msg = (f"Imported pillar taxonomy: {summary['created']} added, "

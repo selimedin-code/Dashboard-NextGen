@@ -74,6 +74,24 @@ templates.env.filters["pct_plain"] = _fmt_pct_plain
 templates.env.filters["dec1"] = _fmt_dec1
 templates.env.filters["hhi"] = _fmt_hhi
 
+
+def _fmt_bp(value) -> str:
+    """value is a fraction; 0.0123 -> '+123 bp' (attribution effects)."""
+    if value is None:
+        return "—"
+    return f"{value * 10000:+,.0f} bp"
+
+
+templates.env.filters["bp"] = _fmt_bp
+
+from app.risk_config import (  # noqa: E402
+    SNAPSHOT_DUE_DAYS, SNAPSHOT_STALE_DAYS, snapshot_age_class,
+)
+
+templates.env.globals["snapshot_age_class"] = snapshot_age_class
+templates.env.globals["SNAPSHOT_DUE_DAYS"] = SNAPSHOT_DUE_DAYS
+templates.env.globals["SNAPSHOT_STALE_DAYS"] = SNAPSHOT_STALE_DAYS
+
 # Cache-bust the stylesheet by its file mtime so CSS edits always reach the browser.
 try:
     _css_version = str(int((BASE_DIR / "static" / "app.css").stat().st_mtime))
@@ -94,6 +112,8 @@ from app import routes_ticker  # noqa: E402
 from app import routes_performance  # noqa: E402
 from app import routes_signals  # noqa: E402
 from app import routes_risk  # noqa: E402
+from app import routes_attribution  # noqa: E402
+from app import routes_journal  # noqa: E402
 
 routes_upload.init_templates(templates)
 routes_changes.init_templates(templates)
@@ -104,6 +124,8 @@ routes_ticker.init_templates(templates)
 routes_performance.init_templates(templates)
 routes_signals.init_templates(templates)
 routes_risk.init_templates(templates)
+routes_attribution.init_templates(templates)
+routes_journal.init_templates(templates)
 app.include_router(routes_upload.router)
 app.include_router(routes_changes.router)
 app.include_router(routes_pillars.router)
@@ -113,6 +135,8 @@ app.include_router(routes_ticker.router)
 app.include_router(routes_performance.router)
 app.include_router(routes_signals.router)
 app.include_router(routes_risk.router)
+app.include_router(routes_attribution.router)
+app.include_router(routes_journal.router)
 
 
 @app.get("/healthz", include_in_schema=False)
@@ -171,6 +195,10 @@ def home(
         sig = build_signals(session)
         ctx["signals"] = sig
         ctx["signal_total"] = sig.total if sig else 0
+        from app.reviews import due_count
+        from app.risk_budget import build_risk_budget
+        ctx["reviews_due"] = due_count(session)
+        ctx["budget"] = build_risk_budget(session, exposure=ctx["exposure"])
 
     return templates.TemplateResponse(request, "index.html", ctx)
 

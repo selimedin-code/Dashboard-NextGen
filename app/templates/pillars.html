@@ -4,6 +4,9 @@
 {% block content %}
 <h1 class="page-title">Pillars</h1>
 
+{% if request.query_params.get('targets') %}
+  <div class="flash flash-ok">Policy targets saved — the benchmark and attribution were recomputed.</div>
+{% endif %}
 {% if request.query_params.get('saved') %}
   <div class="flash flash-ok">Pillar assignments saved.</div>
 {% endif %}
@@ -38,24 +41,50 @@
 </div>
 
 {% if taxonomy %}
-<div class="card">
-  <h2>Framework ({{ taxonomy|length }} pillars)</h2>
+<form method="post" action="/pillars/targets" class="form">
+<div class="card" id="targets">
+  <h2>Framework ({{ taxonomy|length }} pillars) &amp; policy benchmark</h2>
+  <p class="muted" style="margin-bottom:8px">Policy benchmark = Σ target × pillar benchmark. This is the line
+  the fund is measured against (Performance, Attribution); QQQ/SPY are secondary. A pillar without a primary ETF
+  is benchmarked by an equal-weight basket of its own names (alternate ETF before their history starts).</p>
+  {% set tt = target_total %}
+  {% if tt == 0 %}
+    <div class="flash flash-warn" style="margin-top:0">No targets set — the policy benchmark and Brinson attribution stay off until you enter them.</div>
+  {% elif (tt - 1)|abs > 0.0005 %}
+    <div class="flash flash-warn" style="margin-top:0">Targets sum to <strong>{{ tt|pct_plain }}</strong>, not 100% — the benchmark normalizes them (each target ÷ {{ tt|pct_plain }}).</div>
+  {% endif %}
   <table>
-    <thead><tr><th>ID</th><th>Pillar</th><th class="num">Held</th><th>Benchmark ETF</th><th>Note</th></tr></thead>
+    <thead><tr><th>ID</th><th>Pillar</th><th class="num">Held</th><th>Benchmark</th>
+      <th class="num">Current</th><th class="num">Target %</th><th class="num">Active</th><th>Note</th></tr></thead>
     <tbody>
     {% for p in taxonomy %}
       <tr>
         <td class="mono small">{{ p.id }}</td>
         <td class="sym">{{ p.name }}</td>
         <td class="num">{% if p.held %}{{ p.held }}{% else %}<span class="muted">0</span>{% endif %}</td>
-        <td>{% if p.primary_etf %}<span class="mono">{{ p.primary_etf }}</span>{% if p.alt_etf %} <span class="muted">/ {{ p.alt_etf }}</span>{% endif %}{% else %}<span class="muted">none</span>{% endif %}</td>
+        <td>{% if p.primary_etf %}<span class="mono">{{ p.primary_etf }}</span>{% if p.alt_etf %} <span class="muted">/ {{ p.alt_etf }}</span>{% endif %}
+            {% else %}<span class="small">EW basket</span>{% if p.alt_etf %} <span class="muted">/ {{ p.alt_etf }}</span>{% endif %}{% endif %}</td>
+        <td class="num">{{ p.current|pct_plain if p.current is not none else '—' }}</td>
+        <td class="num"><input type="text" name="target__{{ p.id }}" inputmode="decimal"
+             value="{{ '%g'|format((p.target * 100)|float) if p.target is not none else '' }}" placeholder="—"
+             style="width:64px;text-align:right;border:1px solid var(--line);border-radius:6px;padding:4px 6px" /></td>
+        {% set act = (p.current or 0) - (p.target or 0) if p.target is not none else none %}
+        <td class="num {{ 'pos' if act is not none and act > 0.005 else 'neg' if act is not none and act < -0.005 else 'muted' }}">{{ act|pct if act is not none else '' }}</td>
         <td class="small">{{ p.caveat or "" }}</td>
       </tr>
     {% endfor %}
     </tbody>
+    <tfoot><tr><td></td><td><b>Total</b></td><td></td><td></td>
+      <td class="num">{{ (1 - cash_weight)|pct_plain if cash_weight is not none else '' }}<br><span class="small muted">+ cash {{ cash_weight|pct_plain if cash_weight is not none else '—' }}</span></td>
+      <td class="num"><b>{{ tt|pct_plain }}</b></td><td></td><td></td></tr></tfoot>
   </table>
+  <div class="actions" style="margin-top:10px"><button class="btn btn-primary">Save targets</button></div>
+  <p class="hint">Targets are % of NAV, entered as percentages (e.g. 22.5). Blank = not in the policy. Current = share of the whole fund
+    at live prices; Active = current − target. Cash has an implicit 0% target, so holding cash shows up as allocation drag.
+    A <span class="mono">target_weight</span> column in the pillars CSV sets these too.</p>
   {% if unassigned %}<p class="hint">{{ unassigned }} held ticker(s) still unassigned.</p>{% endif %}
 </div>
+</form>
 {% endif %}
 
 {% if rows %}

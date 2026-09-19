@@ -16,6 +16,7 @@ from app.auth import require_auth
 from app.db import get_session
 from app.exposure import build_exposure
 from app.gauges import build_gauges, refresh_gauges
+from app.risk_budget import build_risk_budget
 from app.tripwires import build_tripwires, update_tripwire
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -37,9 +38,10 @@ def risk_view(
     view = build_exposure(session)
     wires = build_tripwires(session)
     gauges = build_gauges(session)
+    budget = build_risk_budget(session, exposure=view)
     return templates.TemplateResponse(
         request, "risk.html",
-        {"view": view, "wires": wires, "gauges": gauges,
+        {"view": view, "wires": wires, "gauges": gauges, "budget": budget,
          "saved": saved, "gauges_msg": gauges_msg},
     )
 

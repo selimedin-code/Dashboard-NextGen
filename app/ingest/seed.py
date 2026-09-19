@@ -3,6 +3,7 @@
 Two file shapes, auto-detected by header so one uploader handles both:
 
   pillars.csv          -> pillar_id, pillar_name, primary_etf, alt_etf, etf_caveat
+                          (+ optional macro_bet, target_weight)
   securities_seed.csv  -> ticker, ..., pillar_id, pillar_name, crossref_pillar_id, ...
 
 Both are idempotent upserts. The securities import also refreshes name / ISIN /
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 import csv
 import io
+from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -83,7 +85,28 @@ def import_pillars(session: Session, rows: list[dict]) -> dict:
         mb = (r.get("macro_bet") or "").strip()
         if mb:
             p.macro_bet = mb
+        tw = parse_target_weight(r.get("target_weight"))
+        if tw is not None:
+            p.target_weight = tw
     return {"created": created, "updated": updated}
+
+
+def parse_target_weight(raw) -> Decimal | None:
+    """'22.5%', '22.5' or '0.225' -> Decimal('0.225'). Blank -> None. A bare
+    number above 1 is read as a percentage."""
+    s = str(raw or "").strip().replace(",", "")
+    if not s:
+        return None
+    pct = s.endswith("%")
+    try:
+        v = Decimal(s.rstrip("%").strip())
+    except InvalidOperation as exc:
+        raise SeedFormatError(f"Target weight '{raw}' is not a number.") from exc
+    if pct or v > 1:
+        v = v / 100
+    if v < 0 or v > 1:
+        raise SeedFormatError(f"Target weight '{raw}' must be between 0% and 100%.")
+    return v
 
 
 def import_securities(session: Session, rows: list[dict]) -> dict:

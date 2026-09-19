@@ -30,7 +30,10 @@
   {% for title, key, items in v.sections() %}
     {% if items %}
     <div class="card">
-      <h2>{{ title }} <span class="muted" style="font-size:12px;font-weight:400">— {{ items|length }}</span></h2>
+      <h2>{{ title }} <span class="muted" style="font-size:12px;font-weight:400">— {{ items|length }}</span>
+        {% if key == 'journal' %}<a href="/reviews/due" style="font-size:12px;font-weight:600;margin-left:8px">score them &rarr;</a>{% endif %}
+        {% if key == 'budget' %}<a href="/risk#budget" style="font-size:12px;font-weight:600;margin-left:8px">risk budget &rarr;</a>{% endif %}
+        {% if key == 'cadence' %}<a href="/upload" style="font-size:12px;font-weight:600;margin-left:8px">upload &rarr;</a>{% endif %}</h2>
       <table>
         <tbody>
         {% for s in items %}
@@ -40,7 +43,7 @@
               {% elif s.severity == 'warn' %}<span class="chip trim">watch</span>
               {% else %}<span class="chip hold">info</span>{% endif %}
             </td>
-            <td class="mono sym" style="width:90px">{% if s.ticker in ['TOP 10'] or ' ' in s.ticker %}{{ s.ticker }}{% else %}<a href="/ticker/{{ s.ticker }}">{{ s.ticker }}</a>{% endif %}</td>
+            <td class="mono sym" style="width:90px">{% if s.ticker in ['TOP 10'] or ' ' in s.ticker %}{{ s.ticker }}{% else %}<a href="/ticker/{{ s.ticker }}{{ '#reviews' if key == 'journal' else '' }}">{{ s.ticker }}</a>{% endif %}</td>
             <td>{{ s.headline }}</td>
             <td class="small muted">{{ s.detail }}</td>
           </tr>
@@ -53,6 +56,8 @@
 
   <p class="hint">Thresholds: single-day move ≥5% (≥8% high); price below 50/200-day average;
   stop breached or within 3%; earnings within 14 days; single name ≥5% (≥8% high),
-  top-10 &gt;45%, pillar &gt;35%; news within 3 days. Set stops on each ticker's page.</p>
+  top-10 &gt;45%, pillar &gt;35%; news within 3 days. Set stops on each ticker's page.
+  Risk budget: AI-complex cap and monthly-loss trigger (<span class="mono">app/risk_config.py</span>);
+  custodian file due past 28 days, red past 35; journal entries once their horizon passes.</p>
 {% endif %}
 {% endblock %}

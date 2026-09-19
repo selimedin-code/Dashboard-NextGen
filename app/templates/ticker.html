@@ -222,7 +222,15 @@
         accept=".pdf,.xlsx,.xlsm,.xls,.csv,.docx,.doc,.pptx,.md,.txt,.html,.htm,.png,.jpg,.jpeg"></label>
       <button class="btn btn-primary">Add review</button>
     </div>
-    <p class="hint">Leave price blank to capture the live quote. Excel, PDF, Word, PowerPoint, HTML or images, up to {{ max_upload_mb }} MB each.</p>
+    <div class="review-fields">
+      <label class="grow">Expected outcome <input type="text" name="expected_outcome" style="width:100%;text-align:left"
+        placeholder="e.g. DC revenue > $60B in the Q4 print; stock re-rates to 30x"></label>
+      <label>By (horizon) <input type="date" name="horizon_date" min="{{ today }}"></label>
+      <label class="grow">Invalidation — what proves it wrong <input type="text" name="invalidation" style="width:100%;text-align:left"
+        placeholder="e.g. hyperscaler capex guide cut; GM < 70%"></label>
+    </div>
+    <p class="hint">Leave price blank to capture the live quote. Excel, PDF, Word, PowerPoint, HTML or images, up to {{ max_upload_mb }} MB each.
+      An expected outcome + horizon puts the entry on the <a href="/reviews/due">Journal</a>: once the horizon passes it must be scored.</p>
   </form>
 
   {% if d.reviews %}
@@ -246,6 +254,22 @@
         </form>
       </div>
       {% if r.note %}<div class="review-note">{{ r.note }}</div>{% endif %}
+      {% if r.horizon_date %}
+      <div class="review-call small">
+        <div><b>Expect</b> {{ r.expected_outcome }} <span class="muted">by {{ r.horizon_date }}</span></div>
+        {% if r.invalidation %}<div><b>Wrong if</b> {{ r.invalidation }}</div>{% endif %}
+        <div>
+          {% if r.verdict %}
+            <span class="chip {{ {'RIGHT_RIGHT':'open','RIGHT_WRONG':'trim','WRONG':'close'}[r.verdict] }}">{{ verdicts[r.verdict] }}</span>
+            <span class="muted">scored {{ r.scored_at.date() }}{% if r.verdict_note %} — {{ r.verdict_note }}{% endif %}</span>
+          {% elif r.horizon_date <= today_date %}
+            <a class="chip close" href="/reviews/due" style="text-decoration:none">verdict due — score it</a>
+          {% else %}
+            <span class="muted">{{ (r.horizon_date - today_date).days }}d to horizon</span>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
       <div class="review-files">
         {% for a in r.attachments %}
           <span class="review-file">
