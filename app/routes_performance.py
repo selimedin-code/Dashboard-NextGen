@@ -37,9 +37,10 @@ def init_templates(t: Jinja2Templates) -> None:
 def performance_view(
     request: Request,
     msg: str | None = None,
+    pperiod: str = "ytd",
     session: Session = Depends(get_session),
 ):
-    view = build_performance(session)
+    view = build_performance(session, pillar_period=pperiod)
     return templates.TemplateResponse(request, "performance.html", {"view": view, "msg": msg})
 
 
@@ -102,7 +103,9 @@ async def nav_upload(file: UploadFile, session: Session = Depends(get_session)):
 def benchmarks_refresh(session: Session = Depends(get_session)):
     try:
         st = refresh_benchmarks(session)
-        msg = "benchmarks: " + ", ".join(f"{k} {v}" for k, v in st.items())
+        bad = {k: v for k, v in st.items() if v != "ok"}
+        msg = f"benchmarks: {len(st) - len(bad)}/{len(st)} ok" + (
+            " — " + ", ".join(f"{k} {v}" for k, v in bad.items()) if bad else "")
     except Exception as exc:  # noqa: BLE001
         msg = f"error: {exc}"
     return RedirectResponse(url=f"/performance?msg={msg}", status_code=status.HTTP_303_SEE_OTHER)

@@ -234,3 +234,61 @@ def test_pillar_contribution(session):
     v = build_performance(session)
     semis = next(p for p in v.by_pillar if p["pillar"] == "Semis")
     assert semis["contribution"] == Decimal("1")     # both doubled: (200)/(200) cost... +100/100? check
+
+
+# ---- pillar vs benchmark ETF ----
+
+def _seed_pillar_book(session):
+    from app.models import Pillar, Security
+    session.add_all([
+        Pillar(id="P01", name="Semis", primary_etf="SMH"),
+        Pillar(id="P03", name="Neoclouds", primary_etf=None, alt_etf="SKYY", caveat="weak proxy"),
+    ])
+    session.flush()
+    commit_snapshot(holdings=[_h("AAA", 10, 10), _h("BBB", 20, 10), _h("CCC", 5, 10)],
+                    as_of=date(2026, 7, 1), filename="f", notes=None,
+                    pillar_assignments={"AAA": "Semis", "BBB": "Semis", "CCC": "Neoclouds"},
+                    session=session)
+    for t in ("AAA", "BBB", "CCC"):
+        _seed_quote(session, t, 20)
+    # Prior-year close -> latest close. AAA 10->20, BBB 10->15, SMH 100->130, SKYY 50->40.
+    _seed_price_series(session, "AAA", [("2025-12-31", 10), ("2026-09-18", 20)])
+    _seed_price_series(session, "BBB", [("2025-12-31", 10), ("2026-09-18", 15)])
+    _seed_price_series(session, "CCC", [("2026-03-01", 10), ("2026-09-18", 12)])   # starts too late for YTD
+    _seed_price_series(session, "SMH", [("2025-12-30", 90), ("2025-12-31", 100), ("2026-09-18", 130)])
+    _seed_price_series(session, "SKYY", [("2025-12-31", 50), ("2026-09-18", 40)])
+    session.commit()
+
+
+def test_pillar_vs_etf_same_window(session):
+    _seed_pillar_book(session)
+    v = build_performance(session, pillar_period="ytd", today=date(2026, 9, 19))
+    rows = {r["pillar"]: r for r in v.by_pillar}
+
+    semis = rows["Semis"]
+    # holdings-weighted: (10*20 + 20*15) / (10*10 + 20*10) - 1 = 500/300 - 1
+    assert semis["pillar_return"] == Decimal(500) / Decimal(300) - 1
+    assert semis["etf"] == "SMH" and semis["etf_return"] == Decimal("0.3")
+    assert semis["excess"] == semis["pillar_return"] - Decimal("0.3")
+    assert (semis["covered"], semis["total"]) == (2, 2)
+
+    neo = rows["Neoclouds"]
+    assert neo["etf"] == "SKYY" and neo["etf_is_alt"] and neo["caveat"] == "weak proxy"
+    assert neo["etf_return"] == Decimal("-0.2")
+    assert neo["pillar_return"] is None and neo["excess"] is None   # no YTD history
+    assert (neo["covered"], neo["total"]) == (0, 1)
+    assert v.pillar_period_end == "2026-09-18"
+
+
+def test_pillar_period_windows(session):
+    _seed_pillar_book(session)
+    v = build_performance(session, pillar_period="3m", today=date(2026, 9, 19))
+    neo = {r["pillar"]: r for r in v.by_pillar}["Neoclouds"]
+    assert neo["pillar_return"] == Decimal("0.2")      # CCC history now spans the window
+    assert build_performance(session, pillar_period="bogus").pillar_period == "ytd"
+
+
+def test_pillar_etfs_included_in_refresh(session):
+    from app.performance import pillar_etf_symbols
+    _seed_pillar_book(session)
+    assert pillar_etf_symbols(session) == ["SKYY", "SMH"]

@@ -180,18 +180,50 @@
   </div>
 </div>
 
-<div class="card">
-  <h2>Contribution by pillar</h2>
-  <table>
-    <thead><tr><th>Pillar</th><th class="num">Return vs cost</th><th class="num">Contribution</th></tr></thead>
+<div class="card" id="pillars">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <h2 style="margin:0">Contribution by pillar</h2>
+    <form method="post" action="/performance/benchmarks/refresh" style="margin:0 0 0 auto">
+      <button class="btn" style="padding:3px 10px" title="Fetch QQQ/SMH/SPY and every pillar ETF">Refresh benchmarks</button>
+    </form>
+    <div class="change-counts">
+      {% for k, lbl in {'ytd':'YTD','3m':'3M','1y':'1Y'}.items() %}
+        <a href="/performance?pperiod={{ k }}#pillars" class="ct {{ 'ct-open' if v.pillar_period == k else '' }}" style="text-decoration:none">{{ lbl }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  {% set plbl = {'ytd':'YTD','3m':'3M','1y':'1Y'}[v.pillar_period] %}
+  <table style="margin-top:10px">
+    <thead><tr>
+      <th>Pillar</th>
+      <th class="num">Return vs cost</th>
+      <th class="num" title="Buy-and-hold of the pillar's current holdings over the window">Pillar {{ plbl }}</th>
+      <th>Benchmark</th>
+      <th class="num">ETF {{ plbl }}</th>
+      <th class="num" title="Pillar minus ETF, same window">vs ETF</th>
+      <th class="num">Contribution</th>
+    </tr></thead>
     <tbody>
     {% for p in v.by_pillar %}
       <tr><td class="sym">{{ p.pillar }}</td>
         <td class="num {{ 'pos' if p.return_vs_cost and p.return_vs_cost>0 else 'neg' if p.return_vs_cost and p.return_vs_cost<0 else '' }}">{{ p.return_vs_cost|pct if p.return_vs_cost is not none else '—' }}</td>
+        <td class="num {{ 'pos' if p.pillar_return and p.pillar_return>0 else 'neg' if p.pillar_return and p.pillar_return<0 else '' }}">
+          {{ p.pillar_return|pct if p.pillar_return is not none else '—' }}
+          {% if p.pillar_return is not none and p.covered < p.total %}<span class="small" title="{{ p.total - p.covered }} name(s) lack price history for the whole window">({{ p.covered }}/{{ p.total }})</span>{% endif %}</td>
+        <td class="small">{% if p.etf %}<span class="mono">{{ p.etf }}</span>{% if p.etf_is_alt %} <span class="muted">alt</span>{% endif %}{% if p.caveat %} <span class="muted" title="{{ p.caveat }}">⚠</span>{% endif %}{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td class="num {{ 'pos' if p.etf_return and p.etf_return>0 else 'neg' if p.etf_return and p.etf_return<0 else '' }}">{{ p.etf_return|pct if p.etf_return is not none else ('refresh' if p.etf else '—') }}</td>
+        <td class="num sym {{ 'pos' if p.excess and p.excess>0 else 'neg' if p.excess and p.excess<0 else '' }}">{{ p.excess|pct if p.excess is not none else '—' }}</td>
         <td class="num sym {{ 'pos' if p.contribution>0 else 'neg' if p.contribution<0 else '' }}">{{ p.contribution|pct }}</td></tr>
     {% endfor %}
     </tbody>
   </table>
+  <p class="hint">
+    <strong>Return vs cost</strong> runs from each purchase (blended cost), so it has no fixed window and can't be set against an ETF directly.
+    <strong>Pillar {{ plbl }}</strong> is the same holdings measured over the window
+    {% if v.pillar_period_start %}(from the close on or before {{ v.pillar_period_start }}{% if v.pillar_period_end %} to {{ v.pillar_period_end }}{% endif %}){% endif %},
+    and <strong>vs ETF</strong> compares it with the pillar's benchmark from the Exposure tab over the same dates.
+    Pillar ETF prices come with <em>Refresh benchmarks</em>; a stock's history comes with its fundamentals refresh.
+  </p>
 </div>
 {% endif %}
 

@@ -17,7 +17,7 @@ Everything reads the cache; nothing here hits the network except refresh_benchma
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import delete, select
@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.fundamentals import _store_history
-from app.models import NavPoint, PriceHistoryCache
+from app.models import NavPoint, Pillar, PriceHistoryCache
 from app.positions import build_positions
 from app.providers.fmp import FMPClient
 
@@ -34,6 +34,10 @@ ZERO = Decimal("0")
 BENCH = {"QQQ": "#3167D6", "BLEND": "#B8912F", "SPY": "#8C8C8C"}   # display colors
 BENCH_SYMBOLS = ["QQQ", "SMH", "SPY"]
 FUND_COLOR = "#141414"
+
+# Windows for the pillar-vs-ETF comparison. Stock histories hold ~20 months
+# (fundamentals.HISTORY_KEEP), so nothing longer than 1Y is reliable.
+PILLAR_PERIODS = {"ytd": "YTD", "3m": "3M", "1y": "1Y"}
 
 CHART_W = 900
 CHART_H = 380
@@ -159,8 +163,9 @@ def refresh_benchmarks(session: Session, *, client: FMPClient | None = None) -> 
             raise RuntimeError("FMP_API_KEY is not set.")
         client = FMPClient(key, min_interval=0.05)
     status: dict[str, str] = {}
+    symbols = BENCH_SYMBOLS + [s for s in pillar_etf_symbols(session) if s not in BENCH_SYMBOLS]
     try:
-        for sym in BENCH_SYMBOLS:
+        for sym in symbols:
             try:
                 hist = client.request("historical-price-eod/light", symbol=sym)
                 # Keep enough history to span the NAV series back to inception.
@@ -173,6 +178,33 @@ def refresh_benchmarks(session: Session, *, client: FMPClient | None = None) -> 
             client.close()
     session.commit()
     return status
+
+
+def _pillar_etf(p: Pillar | None) -> tuple[str | None, bool]:
+    """(benchmark symbol, is_alt) — the primary ETF, else the alternate (P03 has
+    no primary; SKYY stands in, with its caveat shown)."""
+    if p is None:
+        return None, False
+    if p.primary_etf:
+        return p.primary_etf.strip().upper(), False
+    if p.alt_etf:
+        return p.alt_etf.strip().upper(), True
+    return None, False
+
+
+def pillar_etf_symbols(session: Session) -> list[str]:
+    syms = {_pillar_etf(p)[0] for p in session.execute(select(Pillar)).scalars().all()}
+    return sorted(s for s in syms if s)
+
+
+def period_start(key: str, today: date) -> date:
+    """Start of a comparison window; returns are measured from the last close on
+    or before this date (so YTD starts from the prior year's final close)."""
+    if key == "3m":
+        return today - timedelta(days=91)
+    if key == "1y":
+        return today - timedelta(days=365)
+    return date(today.year - 1, 12, 31)
 
 
 def _series(session: Session, ticker: str) -> list[tuple[str, Decimal]]:
@@ -255,9 +287,13 @@ class PerformanceView:
     total_cost: Decimal | None = None
     benchmarks_cached: bool = False
     kpis: dict = field(default_factory=dict)
+    pillar_period: str = "ytd"
+    pillar_period_start: date | None = None
+    pillar_period_end: str | None = None
 
 
-def build_performance(session: Session) -> PerformanceView:
+def build_performance(session: Session, pillar_period: str = "ytd",
+                      today: date | None = None) -> PerformanceView:
     navs = list_nav_points(session)
     qqq, smh, spy = _series(session, "QQQ"), _series(session, "SMH"), _series(session, "SPY")
     blend = _blend_series(qqq, smh)
@@ -268,6 +304,9 @@ def build_performance(session: Session) -> PerformanceView:
         base_date=navs[0].as_of if navs else None, window_end=None,
         fund_return=None, benchmarks_cached=benchmarks_cached,
     )
+    if pillar_period not in PILLAR_PERIODS:
+        pillar_period = "ytd"
+    view.pillar_period = pillar_period
 
     # --- fund level ---
     if navs:
@@ -300,6 +339,7 @@ def build_performance(session: Session) -> PerformanceView:
 
         contribs: list[Contributor] = []
         pillar_agg: dict[str, list] = {}
+        members: dict[str, list] = {}
         for r in priced:
             unrl = (r.market_value - r.units * r.avg_cost)
             contribution = (unrl / total_cost) if total_cost else ZERO
@@ -312,6 +352,7 @@ def build_performance(session: Session) -> PerformanceView:
             b[0] += contribution
             b[1] += r.market_value
             b[2] += r.units * r.avg_cost
+            members.setdefault(key, []).append(r)
         contribs.sort(key=lambda c: c.contribution, reverse=True)
         view.contributors = contribs
         view.by_pillar = sorted(
@@ -319,8 +360,60 @@ def build_performance(session: Session) -> PerformanceView:
               "return_vs_cost": (v[1] / v[2] - 1) if v[2] else None} for k, v in pillar_agg.items()),
             key=lambda d: d["contribution"], reverse=True,
         )
+        _add_pillar_benchmarks(session, view, members, today or date.today())
 
     return view
+
+
+def _add_pillar_benchmarks(session: Session, view: PerformanceView,
+                           members: dict[str, list], today: date) -> None:
+    """Per pillar, over the same window: the pillar's CURRENT holdings (buy-and-
+    hold of today's units) vs its benchmark ETF. Return-vs-cost has no fixed
+    window, so this like-for-like pair is what the "vs ETF" column compares.
+
+    Both legs end at the ETF's last cached close so the dates line up; a name is
+    left out (and counted in `covered`) if its history doesn't span the window."""
+    start = period_start(view.pillar_period, today)
+    start_iso = start.isoformat()
+    view.pillar_period_start = start
+    meta = {p.name: p for p in session.execute(select(Pillar)).scalars().all()}
+    hist_cache: dict[str, list] = {}
+
+    def hist(sym: str) -> list:
+        if sym not in hist_cache:
+            hist_cache[sym] = _series(session, sym)
+        return hist_cache[sym]
+
+    ends = []
+    for row in view.by_pillar:
+        p = meta.get(row["pillar"])
+        etf, is_alt = _pillar_etf(p)
+        row.update(etf=etf, etf_is_alt=is_alt, caveat=(p.caveat if p else None),
+                   etf_return=None, pillar_return=None, excess=None,
+                   covered=0, total=len(members.get(row["pillar"], [])))
+        etf_series = hist(etf) if etf else []
+        end_iso = etf_series[-1][0] if etf_series else today.isoformat()
+        if etf_series:
+            e0 = _value_at(etf_series, start_iso, mode="before")
+            e1 = etf_series[-1][1]
+            if e0:
+                row["etf_return"] = e1 / e0 - 1
+                ends.append(end_iso)
+
+        v0 = v1 = ZERO
+        for r in members.get(row["pillar"], []):
+            s = hist(r.ticker)
+            c0 = _value_at(s, start_iso, mode="before")
+            c1 = _value_at(s, end_iso, mode="before")
+            if c0 and c1:
+                v0 += r.units * c0
+                v1 += r.units * c1
+                row["covered"] += 1
+        if v0:
+            row["pillar_return"] = v1 / v0 - 1
+        if row["pillar_return"] is not None and row["etf_return"] is not None:
+            row["excess"] = row["pillar_return"] - row["etf_return"]
+    view.pillar_period_end = max(ends) if ends else None
 
 
 def compute_nav_kpis(navs: list[NavPoint], ref: list | None = None,
