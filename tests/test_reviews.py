@@ -114,3 +114,18 @@ def test_ticker_detail_uses_cached_price_for_unheld_name(session):
     assert d.current_price == Decimal("200")
     assert d.reviews[0].since_pct == Decimal("1")
     assert session.execute(select(ReviewLog)).scalar_one().ticker == "NVDA"
+
+
+def test_size_limits(session, monkeypatch):
+    monkeypatch.setattr(rv, "MAX_FILE_BYTES", 10)
+    monkeypatch.setattr(rv, "MAX_REQUEST_BYTES", 15)
+    ok = rv.UploadedFile("a.pdf", "application/pdf", b"x" * 10)
+    with pytest.raises(rv.ReviewError, match="larger than"):
+        rv.validate_files([rv.UploadedFile("big.pdf", "application/pdf", b"x" * 11)])
+    assert len(rv.validate_files([ok])) == 1
+    with pytest.raises(rv.ReviewError, match="total"):
+        rv.validate_files([ok, ok])
+
+
+def test_default_limit_fits_large_reports():
+    assert rv.MAX_FILE_BYTES >= 45 * rv.MB

@@ -47,7 +47,7 @@ def ticker_view(
         request, "ticker.html",
         {"d": detail, "refreshed": refreshed, "saved": saved,
          "review": review, "review_err": review_err, "trade": trade, "trade_err": trade_err,
-         "today": date.today().isoformat()},
+         "today": date.today().isoformat(), "max_upload_mb": rv.MAX_FILE_BYTES // rv.MB},
     )
 
 

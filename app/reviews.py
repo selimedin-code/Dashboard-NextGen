@@ -24,7 +24,11 @@ from app.providers.fmp import FMPClient
 
 STANCES = ("ADD", "HOLD", "TRIM", "EXIT", "WATCH")
 
-MAX_FILE_BYTES = 25 * 1024 * 1024
+MB = 1024 * 1024
+# Report PDFs from the Claude skills run 35-45 MB. The whole upload is held in
+# memory on a 512 MB Render instance, so cap the request total as well.
+MAX_FILE_BYTES = 75 * MB
+MAX_REQUEST_BYTES = 150 * MB
 ALLOWED_EXTENSIONS = {
     ".pdf", ".xlsx", ".xlsm", ".xls", ".csv",
     ".docx", ".doc", ".pptx", ".md", ".txt", ".html", ".htm",
@@ -98,8 +102,10 @@ def validate_files(files: list[UploadedFile]) -> list[UploadedFile]:
         if ext not in ALLOWED_EXTENSIONS:
             raise ReviewError(f"{name}: file type {ext or '(none)'} not allowed.")
         if len(f.data) > MAX_FILE_BYTES:
-            raise ReviewError(f"{name}: larger than {MAX_FILE_BYTES // (1024 * 1024)} MB.")
+            raise ReviewError(f"{name}: larger than {MAX_FILE_BYTES // MB} MB.")
         out.append(UploadedFile(name, f.content_type, f.data))
+    if sum(len(f.data) for f in out) > MAX_REQUEST_BYTES:
+        raise ReviewError(f"Files total more than {MAX_REQUEST_BYTES // MB} MB — attach them in two goes.")
     return out
 
 

@@ -222,7 +222,7 @@
         accept=".pdf,.xlsx,.xlsm,.xls,.csv,.docx,.doc,.pptx,.md,.txt,.html,.htm,.png,.jpg,.jpeg"></label>
       <button class="btn btn-primary">Add review</button>
     </div>
-    <p class="hint">Leave price blank to capture the live quote. Excel, PDF, Word, PowerPoint, HTML or images, up to 25 MB each.</p>
+    <p class="hint">Leave price blank to capture the live quote. Excel, PDF, Word, PowerPoint, HTML or images, up to {{ max_upload_mb }} MB each.</p>
   </form>
 
   {% if d.reviews %}
