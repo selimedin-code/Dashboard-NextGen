@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.auth import require_auth
+from app.closed import build_closed_positions
 from app.db import get_session
 from app.positions import build_positions
 from app.prices import refresh_quotes
@@ -32,8 +33,10 @@ def positions_view(
     session: Session = Depends(get_session),
 ):
     view = build_positions(session)
+    closed = build_closed_positions(session)
     return templates.TemplateResponse(
-        request, "positions.html", {"view": view, "refreshed": refreshed}
+        request, "positions.html",
+        {"view": view, "refreshed": refreshed, "closed": closed},
     )
 
 

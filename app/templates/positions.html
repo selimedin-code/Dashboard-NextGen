@@ -180,4 +180,42 @@
   })();
   </script>
 {% endif %}
+
+{# Closed positions: derived from snapshot history, nothing is ever deleted. #}
+{% if closed %}
+<details class="card" style="margin-top:14px">
+  <summary style="cursor:pointer;font-weight:700">
+    Closed positions <span class="muted" style="font-weight:400">({{ closed|length }})</span>
+  </summary>
+  <table style="margin-top:10px">
+    <thead><tr>
+      <th style="text-align:left">Ticker</th><th style="text-align:left">Name</th>
+      <th style="text-align:left">Pillar</th><th>Held</th>
+      <th class="num">Last units</th><th class="num">Avg cost</th>
+      <th class="num">Exit</th><th class="num">Realized</th><th class="num">Realized %</th>
+    </tr></thead>
+    <tbody>
+    {% for c in closed %}
+      <tr>
+        <td><a href="/ticker/{{ c.ticker }}">{{ c.ticker }}</a></td>
+        <td class="small">{{ c.name or '' }}</td>
+        <td class="small">{{ c.pillar or '' }}</td>
+        <td class="small" style="white-space:nowrap">{{ c.first_seen }} &rarr; {{ c.closed_on }}</td>
+        <td class="num">{{ c.last_units|qty }}</td>
+        <td class="num">{{ c.avg_cost|money }}</td>
+        <td class="num">{% if c.exit_price is not none %}{{ c.exit_price|money }}
+          <span class="small">{{ c.exit_source }}</span>{% else %}&mdash;{% endif %}</td>
+        <td class="num {{ 'pos' if c.realized_pl and c.realized_pl > 0 else 'neg' if c.realized_pl and c.realized_pl < 0 else '' }}">
+          {{ c.realized_pl|money if c.realized_pl is not none else '—' }}</td>
+        <td class="num {{ 'pos' if c.realized_pct and c.realized_pct > 0 else 'neg' if c.realized_pct and c.realized_pct < 0 else '' }}">
+          {{ c.realized_pct|pct if c.realized_pct is not none else '—' }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="hint">Realized is final-leg economics: (exit &minus; blended cost) &times; last units.
+  Earlier trims aren't accumulated here — each ticker page keeps the full trade and change history.
+  "close est." exits use the cached daily close on the close date; fees are not included.</p>
+</details>
+{% endif %}
 {% endblock %}
