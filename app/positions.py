@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ingest.normalize import CASH_TICKER
-from app.models import HoldingSnapshot, QuoteCache, Security, Snapshot
+from app.models import HoldingSnapshot, ManualTrade, QuoteCache, Security, Snapshot
 from app.prices import cache_age_seconds, load_quote_cache
 
 ZERO = Decimal("0")
@@ -71,6 +71,18 @@ def build_positions(session: Session) -> PositionsView | None:
     secs = {s.ticker: s for s in session.execute(select(Security)).scalars().all()}
     quotes = load_quote_cache(session)
 
+    # Units BOUGHT today by manual trade never traded at yesterday's close, so
+    # their day-P&L reference is the trade price, not prev_close. Collected as
+    # ticker -> [(units, price), ...] for today's manual snapshot only.
+    bought_today: dict[str, list[tuple[Decimal, Decimal]]] = {}
+    if latest.source == "manual" and latest.as_of == date.today():
+        for t in session.execute(
+            select(ManualTrade).where(ManualTrade.snapshot_id == latest.id,
+                                      ManualTrade.side == "BUY")
+        ).scalars().all():
+            bought_today.setdefault(t.ticker, []).append(
+                (Decimal(t.units), Decimal(t.price)))
+
     rows: list[PositionRow] = []
     total_mv = ZERO           # priced market value (incl. cash)
     total_prev = ZERO         # priced value at prev close (incl. cash)
@@ -108,13 +120,21 @@ def build_positions(session: Session) -> PositionsView | None:
 
         price = Decimal(q.price)
         mv = h.units * price
-        prev = h.units * (Decimal(q.prev_close) if q.prev_close is not None else price)
+        prev_close = Decimal(q.prev_close) if q.prev_close is not None else price
+        prev = h.units * prev_close
+        if h.ticker in bought_today:
+            # Reference today's buys at their trade price; only the units already
+            # held yesterday reference prev_close. (Units sold today drop out of
+            # the table, so their day effect is not shown either way.)
+            buys_units = sum(u for u, _ in bought_today[h.ticker])
+            held_before = max(h.units - buys_units, ZERO)
+            prev = held_before * prev_close + sum(u * p for u, p in bought_today[h.ticker])
         row.price = price
         row.currency = q.currency
         row.market_value = mv
         row.unrl_pl = (price - h.avg_cost) * h.units
         row.unrl_pct = (price / h.avg_cost - 1) if h.avg_cost else None
-        row.day_change_pct = (Decimal(q.day_change_pct) / 100) if q.day_change_pct is not None else None
+        row.day_change_pct = (mv / prev - 1) if prev else None
         row.day_pl = mv - prev
         total_mv += mv
         total_prev += prev

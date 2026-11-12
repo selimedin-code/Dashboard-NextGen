@@ -97,3 +97,48 @@ def test_unpriced_is_flagged_not_zero(session):
 
 def test_no_snapshot_returns_none(session):
     assert build_positions(session) is None
+
+
+def test_day_pl_for_units_bought_today_uses_trade_price(session):
+    """A name bought today never traded at yesterday's close for the fund: its
+    day reference is the trade price, not prev_close (seen live with NVTS:
+    bought 9.44 intraday, prev close 10.07 -> a -2k 'loss' that never happened)."""
+    from datetime import timedelta
+    from app import trades as tr
+
+    commit_snapshot(holdings=[
+        _h("NVDA", 100, 50),
+        _h("USD Cash", 100000, 1, exch=None, cash=True),
+    ], as_of=date.today() - timedelta(days=5), filename="f", notes=None,
+        pillar_assignments=None, session=session)
+
+    # New position opened today + a top-up of an existing one.
+    tr.record_trade(session, "NVTS", side="BUY", units_raw="4015.18", price_raw="9.44",
+                    trade_date=date.today())
+    tr.record_trade(session, "NVDA", side="BUY", units_raw="100", price_raw="60",
+                    trade_date=date.today())
+    _seed_quote(session, "NVTS", price="9.56", prev="10.07", day="-5.08")
+    _seed_quote(session, "NVDA", price="61", prev="58", day="5.17")
+    session.commit()
+
+    rows = {r.ticker: r for r in build_positions(session).rows}
+
+    nvts = rows["NVTS"]
+    assert nvts.day_pl == (Decimal("9.56") - Decimal("9.44")) * Decimal("4015.18")
+    assert nvts.day_pl > 0                        # NOT -2k vs yesterday's close
+    assert nvts.day_change_pct == Decimal("9.56") / Decimal("9.44") - 1
+
+    # Top-up: old 100 units vs prev close, today's 100 units vs trade price.
+    nvda = rows["NVDA"]
+    expected_prev = 100 * Decimal("58") + 100 * Decimal("60")
+    assert nvda.day_pl == 200 * Decimal("61") - expected_prev
+
+
+def test_day_pl_unchanged_when_latest_snapshot_is_upload(session):
+    commit_snapshot(holdings=[_h("NVDA", 100, 50)], as_of=date.today(), filename="f",
+                    notes=None, pillar_assignments=None, session=session)
+    _seed_quote(session, "NVDA", price=60, prev=55)
+    session.commit()
+    row = build_positions(session).rows[0]
+    assert row.day_pl == 100 * Decimal(5)
+    assert row.day_change_pct == Decimal(60) / Decimal(55) - 1
