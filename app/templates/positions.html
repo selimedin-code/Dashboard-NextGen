@@ -54,9 +54,12 @@
       {% elif view.cache_age_seconds < 86400 %}<strong class="age-warn">{{ (view.cache_age_seconds/3600)|round(1) }} h ago</strong>
       {% else %}<strong class="age-stale">{{ (view.cache_age_seconds/86400)|round|int }} d ago</strong>{% endif %}
     </div>
-    <form method="post" action="/positions/refresh" style="margin:0 0 0 auto">
-      <button type="submit" class="btn btn-primary">Refresh prices</button>
-    </form>
+    <div style="display:flex;gap:8px;margin-left:auto">
+      <a class="btn" href="/trades">Record trades</a>
+      <form method="post" action="/positions/refresh" style="margin:0">
+        <button type="submit" class="btn btn-primary">Refresh prices</button>
+      </form>
+    </div>
   </div>
 
   {% if refreshed %}<div class="flash flash-ok">Prices refreshed — {{ refreshed }}.</div>{% endif %}

@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Record trades · NextGen{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Record trades</h1>
+
+{% if error %}
+  <div class="flash flash-err">
+    <strong>{% if failed_leg %}Leg {{ failed_leg[1] }} {{ failed_leg[2] }} {{ failed_leg[0] }} failed:{% else %}Could not apply the trades:{% endif %}</strong>
+    {{ error }}
+    {% if results %}<br><span class="small">The {{ results|length }} leg(s) below were already applied —
+    each can be undone from its ticker page.</span>{% endif %}
+  </div>
+{% endif %}
+
+{% if results %}
+  <div class="card">
+    <h2>{{ 'Applied' if not error else 'Applied before the error' }}</h2>
+    <table>
+      <thead><tr><th>Ticker</th><th>Side</th><th class="num">Units</th><th class="num">Price</th>
+        <th class="num">Position after</th><th class="num">Cash after</th><th></th></tr></thead>
+      <tbody>
+      {% for r in results %}
+        <tr>
+          <td><a href="/ticker/{{ r.trade.ticker }}">{{ r.trade.ticker }}</a></td>
+          <td><span class="chip {{ 'add' if r.trade.side == 'BUY' else 'trim' }}">{{ r.trade.side }}</span></td>
+          <td class="num">{{ r.trade.units|qty }}</td>
+          <td class="num">{{ r.trade.price|money }} <span class="small">{{ r.trade.price_source }}</span></td>
+          <td class="num">{{ r.units_after|qty }}{% if r.units_after == 0 %} <span class="chip trim">closed</span>{% endif %}</td>
+          <td class="num">{{ r.cash_after|money if r.cash_after is not none else '—' }}</td>
+          <td><a class="small" href="/ticker/{{ r.trade.ticker }}#trade">undo&hellip;</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% if not error %}
+    <div class="actions" style="margin-top:10px">
+      <a class="btn" href="/positions">Positions &rarr;</a>
+      <a class="btn" href="/changes">Changes &rarr;</a>
+    </div>
+    {% endif %}
+  </div>
+{% endif %}
+
+<div class="card">
+  <h2>New trades <span class="muted" style="font-size:12px;font-weight:400">— e.g. all legs of one broker confirmation</span></h2>
+  <p class="muted" style="margin-top:0">Each leg goes through the same engine as the
+  ticker-page form: applied on top of the latest snapshot
+  {% if latest %}(<strong>{{ latest.as_of }}</strong>{{ ', manual' if latest.source == 'manual' else '' }}){% endif %}
+  as a manual snapshot, cash adjusted by units &times; price, undoable until the next
+  snapshot. Legs on the same date share one snapshot.</p>
+
+  <form method="post" action="/trades" class="form"
+        onsubmit="return confirm('Apply these trades?')">
+    <table>
+      <thead><tr>
+        <th style="text-align:left">Ticker</th><th style="text-align:left">Side</th>
+        <th class="num">Units</th><th class="num">Price</th>
+      </tr></thead>
+      <tbody>
+      {% for i in rows %}
+        <tr>
+          <td><input type="text" name="ticker_{{ i }}" placeholder="e.g. ARM"
+                     value="{{ form['ticker_' ~ i] if form else '' }}" style="width:110px" /></td>
+          <td><select name="side_{{ i }}">
+                <option value="SELL" {{ 'selected' if form and form['side_' ~ i] == 'SELL' else '' }}>Sell</option>
+                <option value="BUY" {{ 'selected' if form and form['side_' ~ i] == 'BUY' else '' }}>Buy</option>
+              </select></td>
+          <td><input type="text" name="units_{{ i }}" inputmode="decimal" placeholder="100 or all"
+                     value="{{ form['units_' ~ i] if form else '' }}" style="width:110px;text-align:right" /></td>
+          <td><input type="text" name="price_{{ i }}" inputmode="decimal" placeholder="blank = live"
+                     value="{{ form['price_' ~ i] if form else '' }}" style="width:110px;text-align:right" /></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="review-fields" style="margin-top:10px">
+      <label>Trade date <input type="date" name="trade_date" value="{{ today }}"></label>
+      <label class="grow">Why (optional — saved to each ticker's review log)
+        <input type="text" name="note" style="width:100%;text-align:left"
+               value="{{ form.note if form else '' }}" placeholder="e.g. broker confirmation 06-Nov"></label>
+    </div>
+    <div class="actions">
+      <label class="small" style="display:inline-flex;gap:6px;align-items:center;font-weight:400">
+        <input type="checkbox" name="adjust_cash" value="1" checked> Adjust USD cash by units &times; price
+      </label>
+      <button class="btn btn-primary" style="margin-left:auto">Apply trades</button>
+    </div>
+    <p class="hint">Units are positive — the side says which way; <strong>all</strong> sells the
+    whole position. Leave price blank to use the live quote. Legs apply in order; if one fails,
+    the earlier ones stay and the error tells you which leg stopped.</p>
+  </form>
+</div>
+{% endblock %}

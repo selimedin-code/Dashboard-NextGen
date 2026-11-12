@@ -11,9 +11,11 @@
     Upload a second snapshot and the decisions between them appear here —
     separated into what was flow-driven and what was a discretionary decision.</p>
     <a class="btn btn-primary" href="/upload" style="margin-top:10px">Upload a snapshot &rarr;</a>
+    <a class="btn" href="/trades" style="margin-top:10px">Record trades &rarr;</a>
   </div>
 {% else %}
   <div class="card" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <a class="btn" href="/trades">Record trades &rarr;</a>
     <form method="get" action="/changes" style="margin:0">
       <label style="font-weight:700;font-size:13px;margin-right:6px">Period</label>
       <select name="to" onchange="this.form.submit()">

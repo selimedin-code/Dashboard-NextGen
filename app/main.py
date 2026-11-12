@@ -114,7 +114,9 @@ from app import routes_signals  # noqa: E402
 from app import routes_risk  # noqa: E402
 from app import routes_attribution  # noqa: E402
 from app import routes_journal  # noqa: E402
+from app import routes_trades  # noqa: E402
 
+routes_trades.init_templates(templates)
 routes_upload.init_templates(templates)
 routes_changes.init_templates(templates)
 routes_pillars.init_templates(templates)
@@ -126,6 +128,7 @@ routes_signals.init_templates(templates)
 routes_risk.init_templates(templates)
 routes_attribution.init_templates(templates)
 routes_journal.init_templates(templates)
+app.include_router(routes_trades.router)
 app.include_router(routes_upload.router)
 app.include_router(routes_changes.router)
 app.include_router(routes_pillars.router)
