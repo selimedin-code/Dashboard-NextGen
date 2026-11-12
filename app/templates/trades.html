@@ -33,6 +33,15 @@
       {% endfor %}
       </tbody>
     </table>
+    {% if needs_pillar %}
+    <div class="flash" style="margin-top:10px">
+      <strong>New name{{ 's' if needs_pillar|length > 1 }}:</strong>
+      {{ needs_pillar|join(', ') }} — two quick follow-ups:
+      <a href="/pillars">assign {{ 'its' if needs_pillar|length == 1 else 'their' }} pillar</a>
+      and hit <em>Refresh prices</em> on <a href="/positions">Positions</a> so
+      {{ 'it gets' if needs_pillar|length == 1 else 'they get' }} a live quote.
+    </div>
+    {% endif %}
     {% if not error %}
     <div class="actions" style="margin-top:10px">
       <a class="btn" href="/positions">Positions &rarr;</a>

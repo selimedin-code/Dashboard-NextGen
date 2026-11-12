@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.auth import require_auth
 from app.config import get_settings
 from app.db import get_session
-from app.models import Snapshot
+from app.models import Security, Snapshot
 from app.providers.fmp import FMPClient
 from app import trades as tr
 
@@ -70,6 +70,15 @@ async def trades_apply(request: Request, session: Session = Depends(get_session)
     if not legs and error is None:
         error = "No trades entered — fill at least one row."
 
+    # Names that are new to the book (or still unassigned) BEFORE applying, so
+    # the result page can point at the pillar step for them.
+    needs_pillar: list[str] = []
+    for ticker, side, *_ in legs:
+        norm = ticker.split()[0].upper()
+        sec = session.get(Security, norm)
+        if side.upper() == "BUY" and (sec is None or not sec.pillar):
+            needs_pillar.append(norm)
+
     client: FMPClient | None = None
     if error is None and any(price is None for *_, price in legs):
         key = get_settings().fmp_api_key
@@ -91,8 +100,10 @@ async def trades_apply(request: Request, session: Session = Depends(get_session)
             if client is not None:
                 client.close()
 
+    applied = {r.trade.ticker for r in results}
     ctx = _ctx(session)
     ctx.update({
+        "needs_pillar": [t for t in needs_pillar if t in applied],
         "results": results, "error": error, "failed_leg": failed_leg,
         "form": form if error else None,
         "today": str(form.get("trade_date") or date.today().isoformat()),
