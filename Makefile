@@ -1,7 +1,8 @@
 # Dev convenience targets. Assumes the venv at .venv and Homebrew Postgres 16.
 # `make dev` runs the reloading server; `make migrate` applies migrations.
 
-PG_BIN := /usr/local/opt/postgresql@16/bin
+# Native Apple Silicon Homebrew since 2026-11 (was /usr/local on the Intel Mac).
+PG_BIN := /opt/homebrew/opt/postgresql@16/bin
 PY     := .venv/bin/python
 PIP    := .venv/bin/pip
 export PATH := $(PG_BIN):$(PATH)
